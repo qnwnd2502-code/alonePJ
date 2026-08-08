@@ -1,0 +1,23 @@
+# 이전 학습물 보관 (로컬 전용, 커밋하지 않음)
+_archive/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 로그 / 런타임 산출물
+*.log
+
+# 환경 변수 / 비밀키 — 절대 커밋 금지
+.env
+*.pem
+*.key
+
+# 로컬 전용 설정
+.claude/settings.local.json
+
+# OS
+Thumbs.db
+.DS_Store
