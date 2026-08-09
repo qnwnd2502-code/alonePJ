@@ -1,5 +1,5 @@
 """컨테이너 안에서 도는 걸 눈으로 확인하는 작은 API."""
-
+import psycopg
 import os
 import platform
 import socket
@@ -24,3 +24,13 @@ def where_am_i():
         "python": platform.python_version(),
         "실행_환경": os.getenv("APP_ENV", "설정 안 됨"),
     }
+
+DATABASE_URL = os.environ["DATABASE_URL"]
+@app.get("/db-check")
+def db_check():
+    """DB에 실제로 질의를 던져보고 결과를 돌려줌"""
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT version()")
+            version = cur.fetchone()[0]
+        return {"연결" : "성공", "postgres" : version}
