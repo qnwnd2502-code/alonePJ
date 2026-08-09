@@ -24,11 +24,11 @@ git pull                       # 최신 내려받기
 
 ## Docker 미션
 
-- [ ] `docker run hello-world` 성공
-- [ ] 컨테이너 생명주기 다뤄보기 (`run` / `ps` / `exec` / `logs` / `stop` / `rm`)
-- [ ] Dockerfile 직접 작성해서 이미지 빌드
-- [ ] docker-compose 로 FastAPI + PostgreSQL 동시 실행
-- [ ] 컨테이너 간 네트워크 통신 확인
+- [x] `docker run hello-world` 성공
+- [x] 컨테이너 생명주기 다뤄보기 (`run` / `ps` / `exec` / `logs` / `stop` / `rm`)
+- [x] Dockerfile 직접 작성해서 이미지 빌드
+- [x] docker-compose 로 FastAPI + PostgreSQL 동시 실행
+- [x] 컨테이너 간 네트워크 통신 확인
 
 ### 자주 쓰는 명령어
 
@@ -44,6 +44,8 @@ docker compose down            # 서비스 전체 종료·정리
 
 진행하면서 막혔던 부분과 해결 과정을 여기에 남긴다.
 
-| 날짜 | 막힌 것 | 원인 | 해결 |
-|------|---------|------|------|
-| 2026-08-08 | `git push` 시 `src refspec main does not match any` | 커밋이 하나도 없어서 main 브랜치가 실체가 없었음 (파일명 오타로 add 실패) | 파일명 수정 후 정상 커밋 → push 성공 |
+| 날짜       | 막힌 것                                                                                              | 원인                                                                                                        | 해결                                                                 |
+| ---------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| 2026-08-08 | `git push` 시 `src refspec main does not match any`                                                  | 커밋이 하나도 없어서 main 브랜치가 실체가 없었음 (파일명 오타로 add 실패)                                   | 파일명 수정 후 정상 커밋 → push 성공                                 |
+| 2026-08-09 | 머지된 브랜치를 `git push origin --delete` 했더니 `remote ref does not exist`                        | GitHub가 PR 머지 시 원격 브랜치를 자동 삭제함. 원격엔 이미 없었고 내 PC에만 낡은 추적 기록이 남아 있었던 것 | `git remote prune origin` 으로 정리. `--delete`는 애초에 필요 없었음 |
+| 2026-08-09 | git status로 modified와 Untracked files의 차이를 알았고 git commit -m 시 의미 단위로 쪼개는걸 알았음 |
