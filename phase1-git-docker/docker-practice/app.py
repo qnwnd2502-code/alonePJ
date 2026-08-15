@@ -36,11 +36,11 @@ def db_check():
         return {"연결" : "성공", "postgres" : version}
 
 
-
 @app.get("/version")
 def version():
     """이 앱의 버전을 알려준다."""
     return {"version": os.getenv("APP_VERSION", "0.1.0")}
+
 
 @app.get("/health")
 def health():
