@@ -1,9 +1,9 @@
 """컨테이너 안에서 도는 걸 눈으로 확인하는 작은 API."""
-import psycopg
 import os
 import platform
 import socket
 
+import psycopg
 from fastapi import FastAPI
 
 app = FastAPI(title="Docker 실습")
