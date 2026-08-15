@@ -1,8 +1,20 @@
 services:
-  api:
-    build: . 
+  # 유일한 출입구. 외부에서 들어올 수 있는 포트는 이제 8080 하나뿐이다.
+  nginx:
+    image: nginx:1.29-alpine
     ports:
-      - "8000:8000"
+      - "8080:80"
+    volumes:
+      # 내 설정 파일을 컨테이너 안 nginx 기본 설정 자리에 덮어씌운다.
+      # ro = read only. 컨테이너가 이 파일을 고치지 못하게 막는다.
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+
+  api:
+    build: .
+    # ports 를 지웠다. 이제 호스트에서 localhost:8000 으로 직접 못 들어온다.
+    # 대신 같은 compose 네트워크 안의 nginx는 api:8000 으로 자유롭게 접근할 수 있다.
     environment:
       APP_ENV: docker-compose
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
