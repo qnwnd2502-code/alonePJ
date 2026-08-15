@@ -34,3 +34,9 @@ def db_check():
             cur.execute("SELECT version()")
             version = cur.fetchone()[0]
         return {"연결" : "성공", "postgres" : version}
+
+
+@app.get("/health")
+def health():
+    """컨테이너가 살아 있는지 확인하는 헬스체크용 엔드포인트."""
+    return {"status": "ok"}
