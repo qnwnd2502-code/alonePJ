@@ -89,13 +89,19 @@ def login(response: Response, user: str = "hong"):
     r.setex(session_key(session_id), SESSION_TTL, user)
 
     # 이 쿠키가 브라우저에 저장되고, 다음 요청부터 자동으로 따라온다.
-    response.set_cookie("session_id", session_id)
+    response.set_cookie(
+        "session_id",
+        session_id,
+        httponly=True,      # 자바스크립트가 document.cookie 로 못 읽는다 -> XSS 세션 탈취 차단
+        samesite="lax",     # 다른 사이트에서 넘어온 요청에는 쿠키를 안 실어준다 -> CSRF 완화
+        # secure=True,      # HTTPS 에서만 전송. 지금은 http라 켜면 쿠키가 아예 안 붙는다.
+        #                     운영 배포 시 반드시 켤 것. HTTPS 실습 때 주석을 푼다.
+    )
 
+    # 전체 세션 수는 내부 지표지 사용자에게 줄 정보가 아니라서 응답에서 뺐다.
     return {
         "로그인": "성공",
         "발급한_서버": socket.gethostname(),
-        # 이제 이 숫자는 '이 서버가 아는 수'가 아니라 '전체가 공유하는 수'다.
-        "전체_세션수": r.dbsize(),
     }
 
 
@@ -107,7 +113,11 @@ def me(session_id: str | None = Cookie(default=None)):
     if session_id is None:
         raise HTTPException(status_code=401, detail="쿠키가 없다. 로그인부터.")
 
-    user = r.get(session_key(session_id))
+    # getex = GET + EXpire. 값을 읽으면서 동시에 수명을 30분으로 되감는다.
+    # 이걸 안 하면 '로그인 후 30분'에 끊긴다 — 작업 중에 튕기는, 사용자가 제일 싫어하는 동작.
+    # get() 하고 expire() 를 따로 부르면 왕복이 2번이고, 그 사이에 만료될 틈도 생긴다.
+    # 명령 하나로 붙여야 안전하다. (Spring Session도 같은 방식으로 수명을 늘린다)
+    user = r.getex(session_key(session_id), ex=SESSION_TTL)
     if user is None:
         # 이제 None 이 나오는 경우는 하나뿐이다 — 진짜로 없거나, 30분이 지나 만료됐거나.
         # '발급한 서버가 아니라서' 는 더 이상 원인이 될 수 없다.
@@ -117,14 +127,18 @@ def me(session_id: str | None = Cookie(default=None)):
 
 
 @app.post("/logout")
-def logout(session_id: str | None = Cookie(default=None)):
+def logout(response: Response, session_id: str | None = Cookie(default=None)):
     """세션을 창고에서 지운다. 지운 순간 모든 서버에서 즉시 로그아웃된다.
 
     토큰(JWT)으로는 이게 어렵다 — 서버가 기억하지 않으니 되돌릴 것도 없고,
     만료 시각까지는 유효한 채로 남는다. 공공기관이 세션을 놓지 못하는 이유.
     """
-    if session_id is None:
-        return {"로그아웃": "쿠키가 없어서 할 일 없음"}
+    if session_id is not None:
+        r.delete(session_key(session_id))
 
-    deleted = r.delete(session_key(session_id))   # 지운 개수(0 또는 1)를 돌려준다
-    return {"로그아웃": "성공" if deleted else "이미 없던 세션", "남은_세션수": r.dbsize()}
+    # 창고만 비우면 브라우저는 죽은 쿠키를 계속 들고 다닌다. 브라우저 쪽도 치워준다.
+    response.delete_cookie("session_id")
+
+    # 세션이 있었는지 없었는지를 응답으로 알려주지 않는다.
+    # 남의 세션 ID를 넣어보며 유효한 값을 찾아내는 데 쓰일 수 있기 때문.
+    return {"로그아웃": "성공"}
