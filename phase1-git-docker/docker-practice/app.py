@@ -2,6 +2,7 @@
 import os
 import platform
 import socket
+import time
 
 import psycopg
 from fastapi import FastAPI
@@ -46,3 +47,14 @@ def version():
 def health():
     """컨테이너가 살아 있는지 확인하는 헬스체크용 엔드포인트."""
     return {"status": "ok"}
+
+
+@app.get("/slow")
+def slow(seconds: int = 10):
+    """일부러 느리게 응답한다. 504 재현용.
+
+    실무에서 이 자리에 들어가는 것: 인덱스 없는 대용량 조회, 무한 루프,
+    응답 없는 외부 API 호출. 증상은 전부 똑같다 — 앱은 살아있는데 답이 안 온다.
+    """
+    time.sleep(seconds)
+    return {"slept": seconds, "hostname": socket.gethostname()}
