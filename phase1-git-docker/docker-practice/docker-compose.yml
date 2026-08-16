@@ -18,9 +18,26 @@ services:
     environment:
       APP_ENV: docker-compose
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # 세션을 보관할 곳. 이 한 줄이 '서버 안의 기억'을 '서버 밖의 기억'으로 옮긴다.
+      REDIS_URL: redis://redis:6379
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # 세션 창고. api 3대가 이 한 곳을 같이 본다.
+  redis:
+    image: redis:8-alpine
+    # ports 를 일부러 두지 않는다. Redis는 기본값에 비밀번호가 없어서
+    # 외부에 노출되면 세션을 통째로 읽히고 남의 계정으로 로그인당한다.
+    # (실무에서 인터넷에 열린 Redis가 털리는 사고가 흔하다)
+    healthcheck:
+      # redis-cli ping 을 던져 PONG 이 오면 살아있는 것으로 본다
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
 
   db:
     image: postgres:17

@@ -14,6 +14,8 @@ venv/
 .env
 *.pem
 *.key
+# curl 실습에서 나오는 세션 쿠키. 남의 계정으로 로그인 가능한 값이다
+cookie.txt
 
 # 로컬 전용 설정
 .claude/settings.local.json
