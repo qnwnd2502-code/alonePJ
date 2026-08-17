@@ -94,8 +94,11 @@ def login(response: Response, user: str = "hong"):
         session_id,
         httponly=True,      # 자바스크립트가 document.cookie 로 못 읽는다 -> XSS 세션 탈취 차단
         samesite="lax",     # 다른 사이트에서 넘어온 요청에는 쿠키를 안 실어준다 -> CSRF 완화
-        # secure=True,      # HTTPS 에서만 전송. 지금은 http라 켜면 쿠키가 아예 안 붙는다.
-        #                     운영 배포 시 반드시 켤 것. HTTPS 실습 때 주석을 푼다.
+        secure=True,        # https 로 접속했을 때만 이 쿠키를 보낸다.
+                            # 어제는 http뿐이라 켜면 쿠키가 아예 안 붙어서 주석으로 뒀다.
+                            # 오늘 nginx에 TLS를 씌웠으니 해제한다.
+                            # 이게 없으면: 사용자가 실수로 http로 한 번 들어오는 순간
+                            # 브라우저가 세션 쿠키를 평문으로 실어보낸다 -> 봉투를 씌운 의미가 사라짐.
     )
 
     # 전체 세션 수는 내부 지표지 사용자에게 줄 정보가 아니라서 응답에서 뺐다.

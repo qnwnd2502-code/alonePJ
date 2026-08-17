@@ -16,6 +16,8 @@ venv/
 *.key
 # curl 실습에서 나오는 세션 쿠키. 남의 계정으로 로그인 가능한 값이다
 cookie.txt
+# TLS 인증서와 개인키. .key 가 새면 인증서는 그 순간 무효가 된다
+certs/
 
 # 로컬 전용 설정
 .claude/settings.local.json
