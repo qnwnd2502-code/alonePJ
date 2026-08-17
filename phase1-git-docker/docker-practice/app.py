@@ -6,6 +6,7 @@ import socket
 import time
 
 import psycopg
+import redis
 from fastapi import Cookie, FastAPI, HTTPException, Response
 
 app = FastAPI(title="Docker 실습")
@@ -61,26 +62,46 @@ def slow(seconds: int = 10):
     return {"slept": seconds, "hostname": socket.gethostname()}
 
 
-# 로그인한 사람을 적어두는 장부. 딱 하나의 사실만 기억할 것 —
-# 이건 '이 컨테이너의 메모리 안'에만 있다. api 컨테이너가 3대면 이 딕셔너리도 3개고,
-# 서로 내용을 전혀 모른다. 세션 불일치의 범인이 바로 이 한 줄이다.
-# (실무에서 이 자리에 해당하는 것: Tomcat이 들고 있는 HttpSession)
-SESSIONS: dict[str, str] = {}
+# 어제까지 여기엔 SESSIONS = {} (파이썬 딕셔너리)가 있었다.
+# 그건 '이 컨테이너의 메모리 안'에만 있어서, api가 3대면 장부도 3개였다 -> 세션 불일치.
+# 이제 장부를 서버 밖으로 뺀다. api 3대가 아래 한 곳을 같이 본다.
+#
+# decode_responses=True 를 켜는 이유: Redis는 원래 바이트(b'hong')를 돌려준다.
+# 안 켜면 문자열 비교가 조용히 실패한다. 초보자가 꼭 한 번 밟는 지뢰.
+REDIS_URL = os.environ["REDIS_URL"]
+r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+
+SESSION_TTL = 1800  # 30분. Redis가 알아서 지워준다 -> 자동 로그아웃이 공짜로 생김
+
+
+def session_key(session_id: str) -> str:
+    """Redis 한 대를 여러 앱이 나눠 쓰므로, 키에 이름표를 붙여 충돌을 막는다."""
+    return f"session:{session_id}"
 
 
 @app.post("/login")
 def login(response: Response, user: str = "hong"):
     """로그인 흉내. 비밀번호 검사는 생략하고 세션만 발급한다."""
     session_id = secrets.token_hex(8)   # 추측 불가능한 무작위 번호표
-    SESSIONS[session_id] = user
+
+    # setex = SET + EXpire. 저장과 동시에 수명을 박는다.
+    # 어제 딕셔너리는 세션이 영원히 쌓여서 메모리가 계속 차올랐다.
+    r.setex(session_key(session_id), SESSION_TTL, user)
 
     # 이 쿠키가 브라우저에 저장되고, 다음 요청부터 자동으로 따라온다.
-    response.set_cookie("session_id", session_id)
+    response.set_cookie(
+        "session_id",
+        session_id,
+        httponly=True,      # 자바스크립트가 document.cookie 로 못 읽는다 -> XSS 세션 탈취 차단
+        samesite="lax",     # 다른 사이트에서 넘어온 요청에는 쿠키를 안 실어준다 -> CSRF 완화
+        # secure=True,      # HTTPS 에서만 전송. 지금은 http라 켜면 쿠키가 아예 안 붙는다.
+        #                     운영 배포 시 반드시 켤 것. HTTPS 실습 때 주석을 푼다.
+    )
 
+    # 전체 세션 수는 내부 지표지 사용자에게 줄 정보가 아니라서 응답에서 뺐다.
     return {
         "로그인": "성공",
         "발급한_서버": socket.gethostname(),
-        "이_서버가_아는_세션수": len(SESSIONS),
     }
 
 
@@ -92,14 +113,32 @@ def me(session_id: str | None = Cookie(default=None)):
     if session_id is None:
         raise HTTPException(status_code=401, detail="쿠키가 없다. 로그인부터.")
 
-    user = SESSIONS.get(session_id)
+    # getex = GET + EXpire. 값을 읽으면서 동시에 수명을 30분으로 되감는다.
+    # 이걸 안 하면 '로그인 후 30분'에 끊긴다 — 작업 중에 튕기는, 사용자가 제일 싫어하는 동작.
+    # get() 하고 expire() 를 따로 부르면 왕복이 2번이고, 그 사이에 만료될 틈도 생긴다.
+    # 명령 하나로 붙여야 안전하다. (Spring Session도 같은 방식으로 수명을 늘린다)
+    user = r.getex(session_key(session_id), ex=SESSION_TTL)
     if user is None:
-        # 번호표는 진짜인데, 하필 발급하지 않은 서버로 요청이 갔다.
-        # 사용자 눈에는 '멀쩡히 로그인했는데 갑자기 풀림' 으로 보인다.
-        # 실무에서는 서버 이름을 응답에 노출하지 않는다(내부 구조 노출). 학습용으로만 드러냄.
-        raise HTTPException(
-            status_code=401,
-            detail=f"이 서버({here})는 그 세션을 모른다. 다른 서버가 발급했다.",
-        )
+        # 이제 None 이 나오는 경우는 하나뿐이다 — 진짜로 없거나, 30분이 지나 만료됐거나.
+        # '발급한 서버가 아니라서' 는 더 이상 원인이 될 수 없다.
+        raise HTTPException(status_code=401, detail="세션이 없거나 만료됐다.")
 
     return {"user": user, "확인한_서버": here}
+
+
+@app.post("/logout")
+def logout(response: Response, session_id: str | None = Cookie(default=None)):
+    """세션을 창고에서 지운다. 지운 순간 모든 서버에서 즉시 로그아웃된다.
+
+    토큰(JWT)으로는 이게 어렵다 — 서버가 기억하지 않으니 되돌릴 것도 없고,
+    만료 시각까지는 유효한 채로 남는다. 공공기관이 세션을 놓지 못하는 이유.
+    """
+    if session_id is not None:
+        r.delete(session_key(session_id))
+
+    # 창고만 비우면 브라우저는 죽은 쿠키를 계속 들고 다닌다. 브라우저 쪽도 치워준다.
+    response.delete_cookie("session_id")
+
+    # 세션이 있었는지 없었는지를 응답으로 알려주지 않는다.
+    # 남의 세션 ID를 넣어보며 유효한 값을 찾아내는 데 쓰일 수 있기 때문.
+    return {"로그아웃": "성공"}
