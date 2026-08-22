@@ -1,0 +1,33 @@
+# 회사 서버 구조를 그대로 세운다: 브라우저 -> Apache -> Tomcat x2
+# nginx 실습(phase1-git-docker/docker-practice)은 건드리지 않고 옆에 따로 짓는 것이다.
+
+services:
+  # 웹서버. 유일한 출입구이자 문지기. nginx 자리.
+  apache:
+    image: httpd:2.4
+    ports:
+      - "9080:80"          # nginx 실습이 8080/8443을 쓰고 있어서 포트를 비켜 잡았다
+    volumes:
+      # 이미지에서 꺼낸 진짜 httpd.conf 를 고쳐서 다시 넣는다.
+      - ./conf/httpd.conf:/usr/local/apache2/conf/httpd.conf:ro
+      # 아파치가 직접 서빙할 정적 파일 자리. DocumentRoot 가 여기를 가리킨다.
+      - ./htdocs:/usr/local/apache2/htdocs:ro
+    depends_on:
+      - tomcat1
+      - tomcat2
+
+  # WAS 1번. 자바 코드가 실제로 도는 곳. 우리 api 자리.
+  tomcat1:
+    image: tomcat:11.0
+    # ports 를 두지 않는다. 바깥에서 WAS에 직접 들어오면 아파치를 우회하는 것이고,
+    # 실무에서 WAS 포트가 인터넷에 열려 있으면 그 자체로 보안 지적사항이다.
+    volumes:
+      # webapps/ROOT 에 넣으면 그게 '/' 로 열린다.
+      # 회사에서 WAR 파일을 webapps/ 에 떨구는 것과 같은 자리다.
+      - ./webapp:/usr/local/tomcat/webapps/ROOT:ro
+
+  # WAS 2번. 1번과 완전히 똑같다. 이 '똑같음'이 오늘의 함정을 만든다.
+  tomcat2:
+    image: tomcat:11.0
+    volumes:
+      - ./webapp:/usr/local/tomcat/webapps/ROOT:ro
