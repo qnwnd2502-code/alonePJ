@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  pom.xml = Project Object Model.
+  자바 세계의 '재료 주문서'다. 파이썬의 requirements.txt 와 같은 자리.
+  회사(전자정부프레임워크) 프로젝트를 열어도 맨 위에 이 파일이 있다.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!--
+    parent = '상속'. 스프링 부트가 미리 정해둔 라이브러리 버전 목록을 통째로 물려받는다.
+    이게 있어서 아래 dependency 에 <version> 을 안 적어도 된다.
+    (자바에서 제일 흔한 사고가 '라이브러리 버전 충돌'인데, 그걸 대신 막아주는 장치다)
+  -->
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.3.5</version>
+    <relativePath/>
+  </parent>
+
+  <!-- 이 프로젝트의 이름표. groupId = 조직, artifactId = 프로젝트명 -->
+  <groupId>com.study</groupId>
+  <artifactId>demo</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+
+  <properties>
+    <java.version>21</java.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+
+  <dependencies>
+    <!--
+      starter-web 하나가 오늘의 핵심이다. 이 한 줄에 다음이 전부 딸려 온다:
+        - Spring MVC   (요청을 어느 메서드로 보낼지 정하는 것)
+        - 내장 Tomcat  (어제 우리가 직접 띄웠던 그 톰캣)
+        - JSON 변환기  (자바 객체 -> JSON 자동 변환)
+      '스타터'라는 이름이 붙은 건 '이거 하나 넣으면 세트로 온다'는 뜻이다.
+    -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!-- mvn spring-boot:run 명령을 쓸 수 있게 해주는 도구 -->
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>
