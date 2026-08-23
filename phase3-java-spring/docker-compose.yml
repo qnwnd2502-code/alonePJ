@@ -1,0 +1,20 @@
+services:
+  # 자바를 PC에 설치하지 않는다. JDK와 Maven이 통째로 들어있는 이미지를 빌린다.
+  # Phase 2에서 openssl 을 컨테이너로 빌려 쓴 것과 같은 수법이다.
+  boot:
+    image: maven:3.9-eclipse-temurin-21
+    working_dir: /app
+    # -B = batch mode. 진행률 막대 같은 쓰레기 출력을 끈다(로그가 읽히게).
+    command: mvn -B spring-boot:run
+    ports:
+      # 왼쪽이 내 PC, 오른쪽이 컨테이너 안.
+      # 8080/8443(Phase 1), 9080(Phase 2)을 이미 쓰고 있어서 9090으로 뺐다.
+      - "9090:8080"
+    volumes:
+      - ./:/app
+      # 이게 없으면 컨테이너를 껐다 켤 때마다 라이브러리를 처음부터 다시 받는다(매번 3~5분).
+      # 받아둔 걸 도커 볼륨에 쌓아두고 재사용한다. 회사 PC의 C:\Users\...\.m2 폴더와 같은 역할.
+      - m2:/root/.m2
+
+volumes:
+  m2:
