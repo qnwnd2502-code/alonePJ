@@ -1,6 +1,8 @@
 package com.study;
 
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.net.InetAddress;
@@ -20,6 +22,10 @@ import java.util.Map;
  */
 @RestController
 public class HelloController {
+    // @Autowired = "스프링아 오토와이어드라고 읽는 너, 여기 Greeter 하나 넣어줘"
+    // 내가 new를 안 했는데도 들어오게끔
+    @Autowired
+    private Greeter greeter;
 
     @GetMapping("/")
     public Map<String, String> home() {
@@ -27,8 +33,10 @@ public class HelloController {
     }
 
     @GetMapping("/hello")
-    public Map<String, String> hello() {
-        return Map.of("message", "안녕하세요 스프링");
+    public Map<String, String> hello(@RequestParam String name) {
+        // @RequestParam = 주소 뒤 ?name=ooo 값을 받아온다
+        String result = greeter.greet(name);
+        return Map.of("message", result);
     }
 
     /**
