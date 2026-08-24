@@ -8,8 +8,12 @@ services:
     command: mvn -B spring-boot:run
     ports:
       # 왼쪽이 내 PC, 오른쪽이 컨테이너 안.
-      # 8080/8443(Phase 1), 9080(Phase 2)을 이미 쓰고 있어서 9090으로 뺐다.
-      - "9090:8080"
+      # 8080/8443(Phase 1), 9080(Phase 2)을 이미 쓰고 있어서 9090으로 뺐었다.
+      # 2026-08-24: 윈도우가 재부팅 때 8995~9094 를 예약해버려서 9090 바인딩 실패.
+      #   "ports are not available ... An attempt was made to access a socket in a way forbidden"
+      #   확인: netsh interface ipv4 show excludedportrange protocol=tcp
+      #   -> 예약 구간 밖인 9500 으로 옮김
+      - "9500:8080"
     volumes:
       - ./:/app
       # 이게 없으면 컨테이너를 껐다 켤 때마다 라이브러리를 처음부터 다시 받는다(매번 3~5분).
