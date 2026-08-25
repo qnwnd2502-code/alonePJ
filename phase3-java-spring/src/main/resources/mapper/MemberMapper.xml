@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  ★ 회사에서 "조회조건 하나 추가해주세요" 요청이 오면 여는 파일이 바로 이거다. ★
+
+  namespace = 짝인 자바 인터페이스의 '풀네임'(패키지 + 클래스).
+              이게 틀리면 MyBatis 가 짝을 못 찾아서 서버가 안 뜬다.
+-->
+<mapper namespace="com.study.MemberMapper">
+
+    <!--
+      ★ 이름을 안 맞추면 이 에러가 난다 (2026-08-25 직접 재현함):
+          org.apache.ibatis.binding.BindingException:
+          Invalid bound statement (not found): com.study.MemberMapper.selectMemberList
+
+        - 서버는 '정상적으로 뜬다'. 그 주소를 부를 때만 500 이 난다. (/hello 는 잘 됨)
+        - 원인은 3개 중 하나: ① namespace 오타 ② <select id> 와 메서드 이름 불일치
+                              ③ mapper-locations 경로가 XML 을 못 찾음
+        - 찾는 법: docker compose logs boot --tail 40 | grep -i exception
+                   -> Exception 붙은 첫 줄만 읽는다. at org.apache... 수백 줄은 안 읽는다
+    -->
+
+    <!--
+      id        = 자바 메서드 이름. 글자 하나까지 같아야 한다
+      resultType= 결과 '한 줄' 을 무엇에 담을지.
+                  자바는 List<MemberVO> 인데 여기는 MemberVO 라고 쓴다.
+                  "여러 개" 는 MyBatis 가 자바 쪽을 보고 알아서 판단한다
+    -->
+    <select id="selectMemberList" resultType="com.study.MemberVO">
+        SELECT member_id
+             , name
+             , use_yn
+             , reg_dt
+          FROM member
+         -- 2026-08-25 사용자가 직접 추가한 조회조건.
+         -- 이 한 줄로 3명 -> 2명(use_yn='N' 인 유준영 제외). 자바 파일은 한 글자도 안 고쳤다.
+         -- 회사의 "탈퇴회원은 목록에서 빼주세요" 요청이 이 작업이다.
+         WHERE use_yn = 'Y'
+         ORDER BY member_id
+    </select>
+
+    <!-- 같은 SQL 인데 resultType 만 map 이다. 그러면 List<Map<String,Object>> 로 온다 -->
+    <select id="selectMemberListAsMap" resultType="map">
+        SELECT member_id
+             , name
+             , use_yn
+          FROM member
+         ORDER BY member_id
+    </select>
+
+    <!--
+      #{name} = 자바에서 넘어온 파라미터가 들어갈 자리.
+                MyBatis 가 값을 직접 문자열로 이어붙이지 않고 '?' 로 넘긴다.
+                그래서 SQL 인젝션이 막힌다. (${name} 는 그냥 이어붙여서 위험하다)
+    -->
+    <select id="selectMemberByName" resultType="com.study.MemberVO">
+        SELECT member_id
+             , name
+             , use_yn
+          FROM member
+         WHERE name = #{name}
+    </select>
+
+</mapper>
