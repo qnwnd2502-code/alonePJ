@@ -43,6 +43,37 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
+
+    <!--
+      MyBatis. 자바 메서드 호출을 SQL 실행으로 바꿔주는 배달부.
+      이것도 '스타터'라서 세트로 온다:
+        - MyBatis 본체        (XML 의 SQL 을 찾아 실행)
+        - Spring 연동         (@Mapper 를 스캔해서 빈으로 등록)
+        - 커넥션 풀(HikariCP) (DB 연결을 미리 여러 개 만들어두고 돌려쓴다)
+
+      버전을 직접 적은 이유: MyBatis 는 스프링 재단 소속이 아니라 별도 프로젝트라서
+      spring-boot-starter-parent 가 버전을 대신 정해주지 않는다.
+      (위 starter-web 에 <version> 이 없는 것과 비교해보면 차이가 보인다)
+    -->
+    <dependency>
+      <groupId>org.mybatis.spring.boot</groupId>
+      <artifactId>mybatis-spring-boot-starter</artifactId>
+      <version>3.0.3</version>
+    </dependency>
+
+    <!--
+      JDBC 드라이버. '자바 <-> PostgreSQL' 사이의 통역사다.
+      DB 종류가 바뀌면 이 한 줄만 갈아끼운다.
+      회사 소스에서는 이 자리에 보통 오라클(ojdbc)이나 티베로 드라이버가 들어있다.
+
+      runtime = 컴파일할 때는 필요 없고, '실행할 때만' 필요하다는 표시.
+      내 코드가 드라이버 클래스 이름을 직접 쓰지 않기 때문이다.
+    -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
   </dependencies>
 
   <build>
