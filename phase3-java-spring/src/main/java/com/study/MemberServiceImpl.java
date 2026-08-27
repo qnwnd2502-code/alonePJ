@@ -9,7 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 //  전자정부 소스의 ○○ServiceImpl.java 가 이 자리다. 로직은 전부 여기 있다.
 // ============================================
 @Service
-public class MemberServiceImpl implements MemberService {
+public class MemberServiceImpl extends AbstractStudyServiceImpl implements MemberService {
 
     @Autowired
     private MemberRepository memberRepository;
@@ -21,6 +21,7 @@ public class MemberServiceImpl implements MemberService {
         if (found == null) {
             return name + "님은 명단에 없습니다";
         }
+        leaveaTrace(name + "조회 성공");
         return found.trim() + "님 안녕하세요";
     }
 }
