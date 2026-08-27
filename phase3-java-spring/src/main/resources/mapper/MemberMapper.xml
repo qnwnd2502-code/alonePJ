@@ -18,8 +18,20 @@
         - 서버는 '정상적으로 뜬다'. 그 주소를 부를 때만 500 이 난다. (/hello 는 잘 됨)
         - 원인은 3개 중 하나: ① namespace 오타 ② <select id> 와 메서드 이름 불일치
                               ③ mapper-locations 경로가 XML 을 못 찾음
-        - 찾는 법: docker compose logs boot --tail 40 | grep -i exception
-                   -> Exception 붙은 첫 줄만 읽는다. at org.apache... 수백 줄은 안 읽는다
+        - 찾는 법: docker compose logs boot | grep -i exception
+                   (마지막 몇 줄만 보려면 tail 옵션. 대시 2개는 이 주석 안에 못 쓴다 - 아래 참고)
+                   -> Caused by: 붙은 줄만 읽는다. at org.apache... 수백 줄은 안 읽는다
+
+      ★ 2026-08-27 이 파일에서 실제로 터진 두 번째 에러 ★
+          Caused by: org.xml.sax.SAXParseException; lineNumber: 21; columnNumber: 44;
+                     The string "- -" is not permitted within comments.   (실제로는 붙여쓴 대시 2개)
+
+        - 원인: XML 주석 안에 대시 2개를 적었다 (docker 명령의 tail 옵션을 그대로 옮겨 적어서).
+                XML 은 대시2개+꺾쇠 로 주석을 닫기 때문에 대시 2개 자체가 금지다.
+        - 증상: 서버가 아예 안 뜬다. 컨테이너가 죽어서 docker compose ps 에 boot 가 없다.
+                (BindingException 과 다르다 - 그건 서버는 뜨고 그 주소만 500 이었다)
+        - 교훈: XML 주석에는 대시 2개, 홑화살괄호 를 넣지 않는다. SQL 주석(대시2개)은
+                select 태그 안쪽이라 괜찮다 - 아래 WHERE 위의 주석이 그 경우다.
     -->
 
     <!--
@@ -61,6 +73,44 @@
              , use_yn
           FROM member
          WHERE name = #{name}
+    </select>
+
+    <!--
+      ★ 2026-08-27 3일차 미스터리의 답: 왜 전자정부 소스는 row.get("USE_YN") 인가 ★
+
+      resultType="map" 은 'DB가 돌려준 컬럼 이름표를 그대로' 키로 쓴다.
+      그 이름표의 대소문자는 DB 종류가 정한다:
+          오라클 / 티베로  -> 컬럼 이름을 대문자로 돌려준다  -> USE_YN
+          PostgreSQL      -> 소문자로 돌려준다              -> use_yn
+      공공기관 DB 는 거의 오라클 아니면 티베로다. 그래서 전자정부 소스가 대문자다.
+
+      아래 SQL 은 PostgreSQL 로 그 상황을 재현한 것이다.
+      큰따옴표로 감싼 별칭은 PostgreSQL 이 대소문자를 그대로 지켜준다.
+    -->
+    <select id="selectMemberListAsOracleStyle" resultType="map">
+        SELECT member_id AS "MEMBER_ID"
+             , name      AS "NAME"
+             , use_yn    AS "USE_YN"
+          FROM member
+         ORDER BY member_id
+    </select>
+
+    <!--
+      ★ EgovMap 방식. resultType 에 우리가 만든 Map 클래스를 지정한다 ★
+
+      SQL 은 위와 완전히 똑같은데(대문자 별칭까지) 결과 키만 useYn 으로 나온다.
+      바꾼 건 resultType 한 군데뿐이다.
+
+      전자정부 실물은 resultType="egovMap" 이라고 짧게 쓴다.
+      egovMap 은 별칭(alias)이고, 전자정부 설정 파일에 미리 등록되어 있다.
+      여기서는 별칭 등록을 생략하고 풀네임을 그대로 적었다.
+    -->
+    <select id="selectMemberListAsEgovMap" resultType="com.study.StudyMap">
+        SELECT member_id AS "MEMBER_ID"
+             , name      AS "NAME"
+             , use_yn    AS "USE_YN"
+          FROM member
+         ORDER BY member_id
     </select>
 
 </mapper>

@@ -33,6 +33,18 @@ public class MemberDbController {
     }
 
     // 3) 이름으로 한 건. 어제 배운 'int 계수기' 도 같이 넣어봤다
+    // 오라클/티베로 흉내: 키가 대문자 밑줄로 온다. 전자정부 소스가 읽는 모양
+    @GetMapping("/db/members-oracle")
+    public List<Map<String, Object>> membersOracleStyle() {
+        return memberMapper.selectMemberListAsOracleStyle();
+    }
+
+    // EgovMap 방식: SQL 은 위와 똑같은데 키가 낙타등으로 온다
+    @GetMapping("/db/members-egovmap")
+    public List<Map<String, Object>> membersEgovMap() {
+        return memberMapper.selectMemberListAsEgovMap();
+    }
+
     @GetMapping("/db/member")
     public Map<String, Object> member(@RequestParam String name) {
         MemberVO vo = memberMapper.selectMemberByName(name);

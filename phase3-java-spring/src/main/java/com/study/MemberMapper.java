@@ -28,4 +28,12 @@ public interface MemberMapper {
 
     // 3) 이름으로 한 건 찾기 -- 파라미터가 SQL 로 넘어간다
     MemberVO selectMemberByName(String name);
+
+    // 4) 오라클/티베로 흉내 -- 컬럼명이 대문자로 오는 경우.
+    //    전자정부 소스의 row.get("USE_YN") 이 이 모양이다
+    List<Map<String, Object>> selectMemberListAsOracleStyle();
+
+    // 5) EgovMap 방식 -- put 할 때 스스로 낙타등으로 바꾸는 Map.
+    //    자바 쪽 타입은 그냥 Map 이다. 무슨 Map 을 쓸지는 XML 의 resultType 이 정한다
+    List<Map<String, Object>> selectMemberListAsEgovMap();
 }
