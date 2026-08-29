@@ -1,0 +1,33 @@
+services:
+  # ============ 우리 시스템 (연계를 '하는' 쪽) ============
+  boot:
+    image: maven:3.9-eclipse-temurin-21
+    working_dir: /app
+    command: mvn -B spring-boot:run
+    ports:
+      # 9500 은 Phase 3 이 쓰므로 9600 으로. (8995~9094 는 윈도우 예약 구간이라 피한다)
+      - "9600:8080"
+    volumes:
+      - ./:/app
+      - m2:/root/.m2
+    environment:
+      # ★ 상대 기관이 발급해준 키. 소스에 박지 않고 환경변수로 주입한다.
+      #   실제로는 이 값도 .env 로 빼야 하지만, 학습용 더미라 여기 둔다.
+      PARTNER_API_KEY: eGov-DEMO-KEY-2026-abcdef123456
+      # 상대 기관 주소. 개발계/운영계가 다르므로 반드시 설정으로 뺀다.
+      PARTNER_BASE_URL: http://partner:8000
+    depends_on:
+      - partner
+
+  # ============ 상대 기관 서버 (연계를 '당하는' 쪽) ============
+  # 회사에서는 이 컨테이너가 없다. 상대 기관 전산실에 있다.
+  # 학습용으로 양쪽을 다 띄워놓고 본다.
+  partner:
+    build: ./partner
+    # ports 를 일부러 두지 않는다. 우리는 브라우저가 아니라
+    # '자바 코드'로 부르는 연습을 해야 한다. boot 는 partner:8000 으로 접근한다.
+    environment:
+      PARTNER_API_KEY: eGov-DEMO-KEY-2026-abcdef123456
+
+volumes:
+  m2:
