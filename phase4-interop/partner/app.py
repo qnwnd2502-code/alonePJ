@@ -119,6 +119,20 @@ def file_download(
     )
 
 
+@app.get("/openapi/echo")
+def echo(request: Request):
+    """
+    ★ 학습 전용 창구. 실제 기관 API 에는 이런 게 없다.
+      우리가 보낸 HTTP 요청이 '상대 서버에 어떻게 도착했는지' 를 그대로 되돌려준다.
+      '헤더에 실었다' 가 눈에 안 보여서 만든 것이다.
+    """
+    return {
+        "요청첫줄":   f"{request.method} {request.url.path}" + (f"?{request.url.query}" if request.url.query else ""),
+        "쿼리스트링": dict(request.query_params) or "(없음)",
+        "헤더전부":   dict(request.headers),
+    }
+
+
 @app.get("/openapi/health")
 def health():
     """인증 없이 열어두는 헬스체크. Phase 2 에서 배운 그것."""

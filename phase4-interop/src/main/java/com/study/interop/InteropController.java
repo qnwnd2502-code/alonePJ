@@ -30,6 +30,37 @@ public class InteropController {
         return partnerClient.fileListByHeaderKey();
     }
 
+    // ★ 헤더에 실었다는 게 뭔지 눈으로 본다.
+    //   상대 서버가 '받은 그대로' 를 되돌려준다. 두 주소를 나란히 열어 비교할 것.
+    @GetMapping("/echo-urlkey")
+    public Map<String, Object> echoUrlKey() {
+        return partnerClient.echoWithUrlKey();
+    }
+
+    @GetMapping("/echo-headerkey")
+    public Map<String, Object> echoHeaderKey() {
+        return partnerClient.echoWithHeaderKey();
+    }
+
+    // ============================================================
+    //  연계 3형태 중 3) DB 직접
+    //  같은 데이터를 두 가지로 가져온다. 결과는 비슷한데 위험도가 다르다.
+    // ============================================================
+    @Resource
+    private PartnerDbClient partnerDbClient;
+
+    // A) 상대 테이블을 직접 SELECT -> 상대 테이블 구조에 우리가 묶인다
+    @GetMapping("/db-direct")
+    public List<Map<String, Object>> dbDirect() {
+        return partnerDbClient.selectDirect();
+    }
+
+    // B) 상대가 열어준 뷰만 SELECT -> 뷰가 계약서 역할을 한다
+    @GetMapping("/db-view")
+    public List<Map<String, Object>> dbView() {
+        return partnerDbClient.selectByView();
+    }
+
     // 3) 키 없이 호출 -> 401. 실패를 어떻게 분류하는지 본다
     @GetMapping("/list-nokey")
     public Map<String, Object> listWithoutKey() {

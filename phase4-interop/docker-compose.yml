@@ -16,8 +16,17 @@ services:
       PARTNER_API_KEY: eGov-DEMO-KEY-2026-abcdef123456
       # 상대 기관 주소. 개발계/운영계가 다르므로 반드시 설정으로 뺀다.
       PARTNER_BASE_URL: http://partner:8000
+      # ★ 상대 기관 DB 에 직접 붙는 정보. 상대가 우리에게 발급해준 계정이다.
+      #   보통 '읽기 전용' 계정을 준다(줘야 한다).
+      PARTNER_DB_URL: jdbc:postgresql://partner-db:5432/${PARTNER_DB_NAME}
+      PARTNER_DB_USER: ${PARTNER_DB_USER}
+      PARTNER_DB_PASSWORD: ${PARTNER_DB_PASSWORD}
+    # depends_on 은 목록형(- partner)과 조건형을 섞어 쓸 수 없다. 전부 조건형으로 통일한다.
     depends_on:
-      - partner
+      partner:
+        condition: service_started
+      partner-db:
+        condition: service_healthy
 
   # ============ 상대 기관 서버 (연계를 '당하는' 쪽) ============
   # 회사에서는 이 컨테이너가 없다. 상대 기관 전산실에 있다.
@@ -29,5 +38,25 @@ services:
     environment:
       PARTNER_API_KEY: eGov-DEMO-KEY-2026-abcdef123456
 
+  # ============ 상대 기관의 DB ============
+  # 상대 기관 전산실 안에 있는 DB 다. 20년째 쓰고 있고 우리가 만든 게 아니다.
+  # 우리가 여기에 '직접' 붙는 것이 연계 3형태 중 3번이다.
+  partner-db:
+    image: postgres:17
+    # ports 를 두지 않는다. 컨테이너 네트워크 안에서만 접근한다.
+    environment:
+      POSTGRES_USER: ${PARTNER_DB_USER}
+      POSTGRES_PASSWORD: ${PARTNER_DB_PASSWORD}
+      POSTGRES_DB: ${PARTNER_DB_NAME}
+    volumes:
+      - partnerdata:/var/lib/postgresql/data
+      - ./partner/db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PARTNER_DB_USER} -d ${PARTNER_DB_NAME}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
 volumes:
   m2:
+  partnerdata:

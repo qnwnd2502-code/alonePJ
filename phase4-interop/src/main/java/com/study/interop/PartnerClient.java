@@ -158,6 +158,36 @@ public class PartnerClient {
     }
 
     // ------------------------------------------------------------
+    //  ★ "헤더에 실었다" 를 눈으로 보기 위한 두 개. 학습 전용.
+    //    상대 서버의 /openapi/echo 는 우리가 보낸 요청을 그대로 되돌려준다.
+    //    위의 fileListByUrlKey / fileListByHeaderKey 와 '똑같은 방식' 으로 보낸다.
+    // ------------------------------------------------------------
+    public Map<String, Object> echoWithUrlKey() {
+
+        String url = UriComponentsBuilder
+                .fromHttpUrl(baseUrl + "/openapi/echo")
+                .queryParam("serviceKey", apiKey)      // <- 주소 뒤에 붙인다
+                .toUriString();
+
+        return restTemplate.getForObject(url, Map.class);
+    }
+
+    public Map<String, Object> echoWithHeaderKey() {
+
+        String url = baseUrl + "/openapi/echo";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + apiKey);   // <- 헤더 한 줄을 만든다
+        headers.setAccept(java.util.List.of(MediaType.APPLICATION_JSON));
+
+        HttpEntity<Void> entity = new HttpEntity<>(null, headers);
+
+        ResponseEntity<Map> response = restTemplate.exchange(
+                url, HttpMethod.GET, entity, Map.class);
+        return response.getBody();
+    }
+
+    // ------------------------------------------------------------
     //  로그에 찍기 전에 키를 가린다. 실무에서 반드시 있어야 하는 코드.
     //  앞 4글자만 남기는 이유: 어떤 키를 썼는지 구분은 돼야 장애 추적이 된다.
     //  ("A키 썼는데 401" 인지 "B키 썼는데 401" 인지 알아야 하므로)
