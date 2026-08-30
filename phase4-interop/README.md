@@ -96,3 +96,98 @@ docker compose exec partner-db psql -U partner_ro -d partnerdb -c "ALTER TABLE c
 **결론**: 기관 간 DB 직접 연계는 상대 테이블 구조에 우리가 묶인다.
 상대는 우리가 보고 있는 줄 모르므로 예고 없이 깨진다. 그건 상대 잘못이 아니다.
 실무에서 'DB 직접 연계' 라고 부르는 것은 대부분 **읽기전용 계정 + 뷰** 형태다.
+
+---
+
+# 실습 3 — mTLS (2026-08-30, 진행 중)
+
+## 지금 어디까지 왔나
+
+| 단계 | 내용 | 상태 |
+|---|---|---|
+| 1 | CA 만들고, 상대 기관 서버 인증서 발급, nginx 에 장착 | ✅ |
+| 2 | 자바가 거부 (`PKIX path building failed`) → truststore 에 CA 등록 → 통과 | ✅ |
+| 3 | `ssl_verify_client on` → 상대가 **우리** 신분증을 요구 → keystore | ⬜ **다음 시간** |
+
+## 누가 누구인가 (헷갈리면 여기를 본다)
+
+```
+   브라우저                우리 서버                    상대 기관
+      │                       │                            │
+      │  http :9600           │                            │
+      ├──────────────────────>│  [boot]                    │
+      │                       │                            │
+      │                       │  https :8443               │
+      │                       ├───────────────────────────>│  [partner-gw : nginx]
+      │                       │   ↑ 여기가 오늘 배운 구간     │         │ http :8000
+      │                       │                            │         v
+      │                       │                            │  [partner : FastAPI]
+```
+
+- **9600** = 우리 앱. 우리가 만든 화면을 보는 문
+- **8443** = 상대 기관 웹서버. **우리 코드가** 들어가는 문 (브라우저용이 아니다)
+
+## 인증서 만드는 명령 (전부 boot 컨테이너 안에서)
+
+```powershell
+docker compose exec boot mkdir -p /app/certs
+
+# 1) CA (인증기관). -x509 = 스스로에게 서명한 완성 인증서
+docker compose exec boot openssl req -x509 -newkey rsa:2048 -sha256 -days 825 -nodes -keyout /app/certs/ca.key -out /app/certs/ca.crt -subj "/C=KR/O=Study Private CA/CN=Study-Root-CA"
+
+# 2) 상대 기관의 신청서(CSR). -x509 가 없으면 .csr 이 나온다
+docker compose exec boot openssl req -newkey rsa:2048 -nodes -keyout /app/certs/partner.key -out /app/certs/partner.csr -subj "/C=KR/O=Partner Agency/CN=partner-gw"
+
+# 3) CA 가 서명 -> 신분증 완성. -extfile 로 SAN 을 넣는다(없으면 자바가 거부)
+docker compose exec boot openssl x509 -req -in /app/certs/partner.csr -CA /app/certs/ca.crt -CAkey /app/certs/ca.key -CAcreateserial -days 825 -sha256 -extfile /app/partner-gw/partner-san.ext -out /app/certs/partner.crt
+
+# 4) 신분증 읽어보기. subject != issuer 면 남이 발급해준 정상 인증서
+docker compose exec boot openssl x509 -in /app/certs/partner.crt -noout -subject -issuer -ext subjectAltName
+
+# 5) 자바가 읽는 '신뢰 목록' 만들기. 넣는 건 partner.crt 가 아니라 ca.crt 다
+docker compose exec boot keytool -importcert -noprompt -alias study-root-ca -file /app/certs/ca.crt -keystore /app/certs/truststore.p12 -storetype PKCS12 -storepass changeit
+```
+
+`certs/` 는 `.gitignore` 로 막혀 있다. 개인키가 들어 있기 때문. 위 명령으로 언제든 다시 만든다.
+
+## 같은 사건, 세 가지 말투
+
+| 누가 | 뭐라고 하나 |
+|---|---|
+| 브라우저 | `ERR_CERT_AUTHORITY_INVALID` |
+| curl | `curl: (60) unable to get local issuer certificate` |
+| 자바 | `PKIX path building failed: unable to find valid certification path` |
+
+셋 다 뜻은 하나 — **"너를 보증한 CA 를 내가 안 믿는다."**
+그리고 셋 다 **인증서 잘못이 아니라 '읽는 쪽의 신뢰 목록이 비어서'** 나는 것이다.
+
+★ **프로그램마다 신뢰 목록이 따로다.** 자바는 자기 것, curl 은 OS 것, 브라우저는 또 자기 것.
+   -> 실무의 "curl 로는 되는데 자바에서만 안 돼요" 가 여기서 나온다.
+
+🚨 `curl -k` 와 자바의 검증 끄는 TrustManager 는 **원인 확인용 1회**로만.
+   암호화는 그대로지만 ③인증이 꺼져서 **공격자와 암호화**될 수 있다.
+
+## 값이 코드까지 오는 길
+
+```
+certs/ca.crt
+  -> keytool -importcert
+    -> certs/truststore.p12
+      -> application.properties : spring.ssl.bundle.jks.[partner].truststore.location
+        -> InteropApplication   : sslBundles.getBundle("partner")   <- 이름이 여기서 만난다
+          -> RestTemplate 안의 SSLContext
+            -> 핸드셰이크에서 상대 인증서의 서명 검증
+```
+
+★ **PartnerClient.java 는 한 글자도 안 고쳤다.**
+   TLS 설정은 '요청 보내는 코드' 가 아니라 '부품 조립하는 자리(Config)' 에 붙는다.
+   회사 소스에서도 거기부터 찾을 것.
+
+## 오늘 밟은 함정 2개
+
+| 증상 | 원인 | 규칙 |
+|---|---|---|
+| 환경변수를 고쳤는데 기본값이 찍힘 | `docker compose restart` 는 compose 파일을 다시 안 읽는다 | **compose 고쳤으면 `up -d`, 소스만 고쳤으면 `restart`** |
+| `cannot find symbol: connectTimeout` | 스프링부트 3.3 은 `setConnectTimeout`. 3.4 부터 `connectTimeout` | **버전이 다르면 메서드 이름도 다르다.** 에러가 클래스명까지 알려준다 |
+
+★ 로그에서 `at` 으로 시작하는 줄은 전부 무시. 원인은 `Caused by:` 와 `at` 아닌 줄에 있다.

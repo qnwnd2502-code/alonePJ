@@ -16,6 +16,9 @@ services:
       PARTNER_API_KEY: eGov-DEMO-KEY-2026-abcdef123456
       # 상대 기관 주소. 개발계/운영계가 다르므로 반드시 설정으로 뺀다.
       PARTNER_BASE_URL: http://partner:8000
+      # ★ 오늘 추가. 같은 상대 기관인데 '웹서버를 거쳐 https 로' 들어가는 주소.
+      #   http 주소와 나란히 두고 무엇이 달라지는지 비교한다.
+      PARTNER_TLS_BASE_URL: https://partner-gw:8443
       # ★ 상대 기관 DB 에 직접 붙는 정보. 상대가 우리에게 발급해준 계정이다.
       #   보통 '읽기 전용' 계정을 준다(줘야 한다).
       PARTNER_DB_URL: jdbc:postgresql://partner-db:5432/${PARTNER_DB_NAME}
@@ -24,6 +27,8 @@ services:
     # depends_on 은 목록형(- partner)과 조건형을 섞어 쓸 수 없다. 전부 조건형으로 통일한다.
     depends_on:
       partner:
+        condition: service_started
+      partner-gw:
         condition: service_started
       partner-db:
         condition: service_healthy
@@ -37,6 +42,24 @@ services:
     # '자바 코드'로 부르는 연습을 해야 한다. boot 는 partner:8000 으로 접근한다.
     environment:
       PARTNER_API_KEY: eGov-DEMO-KEY-2026-abcdef123456
+
+  # ============ 상대 기관의 웹서버 (TLS 종료 지점) ============
+  # 상대 기관 전산실 맨 앞에 서 있는 nginx 다. 우리 것이 아니다.
+  # 인증서를 들고 있는 건 앱이 아니라 '이 녀석' 이다.
+  partner-gw:
+    image: nginx:1.27-alpine
+    ports:
+      # 브라우저로도 열어보기 위해 노출한다.
+      # (앱 서버는 노출 금지지만 웹서버는 원래 외부에 서는 자리다)
+      - "8443:8443"
+    volumes:
+      - ./partner-gw/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # ★ 인증서를 이미지 안에 굽지 않는다. 볼륨으로 '읽기 전용' 마운트한다.
+      #   이미지에 개인키를 구우면 레지스트리에 올리는 순간 유출이다.
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      partner:
+        condition: service_started
 
   # ============ 상대 기관의 DB ============
   # 상대 기관 전산실 안에 있는 DB 다. 20년째 쓰고 있고 우리가 만든 게 아니다.
