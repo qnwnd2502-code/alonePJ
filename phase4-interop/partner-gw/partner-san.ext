@@ -1,0 +1,9 @@
+# 인증서에 '이 이름으로 접속하는 건 정상이다' 를 적어두는 파일.
+#
+# ★ SAN(Subject Alternative Name) = 이 인증서가 유효한 호스트 이름 목록.
+#   옛날에는 CN 하나로 했지만, 요즘 자바/브라우저는 CN 을 아예 안 본다.
+#   SAN 이 없으면 이런 에러가 난다:
+#     No subject alternative names present
+#   실무에서 "인증서 새로 받았는데 자바에서만 안 붙어요" 의 단골 원인이다.
+subjectAltName = DNS:partner-gw, DNS:localhost
+extendedKeyUsage = serverAuth

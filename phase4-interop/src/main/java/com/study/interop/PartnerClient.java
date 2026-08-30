@@ -34,6 +34,13 @@ public class PartnerClient {
     @Value("${partner.api-key}")
     private String apiKey;
 
+    // ★ 오늘 추가. 같은 상대 기관인데 웹서버를 거쳐 https 로 들어가는 주소.
+    //   값이 오는 길:  docker-compose.yml 의 PARTNER_TLS_BASE_URL
+    //                -> application.properties 의 partner.tls-base-url
+    //                -> 아래 @Value -> 이 필드
+    @Value("${partner.tls-base-url}")
+    private String tlsBaseUrl;
+
     @Resource
     private RestTemplate restTemplate;
 
@@ -185,6 +192,29 @@ public class PartnerClient {
         ResponseEntity<Map> response = restTemplate.exchange(
                 url, HttpMethod.GET, entity, Map.class);
         return response.getBody();
+    }
+
+    // ============================================================
+    //  ★ 오늘의 주인공 — 같은 요청을 https 로 보낸다.
+    //
+    //  코드에서 달라지는 건 딱 한 글자다: http -> https
+    //  나머지(헤더, exchange, 응답 꺼내기)는 1일차와 완전히 똑같다.
+    //
+    //  그런데 이게 실패한다. 왜 실패하는지가 오늘 수업의 전부다.
+    // ============================================================
+    public Map<String, Object> fileListOverTls() {
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + apiKey);
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+        String url = tlsBaseUrl + "/openapi/file/list";
+        log.debug("[연계요청-TLS] GET {}", url);   // 헤더 방식이라 URL 에 키가 없다
+
+        ResponseEntity<Map> res = restTemplate.exchange(
+                url, HttpMethod.GET, entity, Map.class);
+
+        return res.getBody();
     }
 
     // ------------------------------------------------------------

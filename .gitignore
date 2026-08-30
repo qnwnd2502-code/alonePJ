@@ -18,6 +18,10 @@ venv/
 cookie.txt
 # TLS 인증서와 개인키. .key 가 새면 인증서는 그 순간 무효가 된다
 certs/
+# 자바 쪽 인증서 보관함. 개인키가 통째로 들어 있다 (truststore 는 공개키뿐이지만 같이 막는다)
+*.p12
+*.jks
+*.keystore
 
 # 로컬 전용 설정
 .claude/settings.local.json

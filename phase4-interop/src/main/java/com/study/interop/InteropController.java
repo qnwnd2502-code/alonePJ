@@ -42,6 +42,13 @@ public class InteropController {
         return partnerClient.echoWithHeaderKey();
     }
 
+    // ★ 오늘의 주소. 같은 목록을 https 로 가져온다.
+    //   1단계에서는 '반드시 실패' 한다. 실패 메시지를 읽는 것이 목적이다.
+    @GetMapping("/tls-list")
+    public Map<String, Object> tlsList() {
+        return partnerClient.fileListOverTls();
+    }
+
     // ============================================================
     //  연계 3형태 중 3) DB 직접
     //  같은 데이터를 두 가지로 가져온다. 결과는 비슷한데 위험도가 다르다.
