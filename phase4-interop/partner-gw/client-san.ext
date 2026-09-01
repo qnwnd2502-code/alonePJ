@@ -1,0 +1,16 @@
+# ============================================================
+#  '우리 쪽' 클라이언트 인증서용 확장 설정.
+#  서버용(partner-san.ext) 과 비교하면 다른 게 딱 한 줄이다.
+#
+#     서버용   : extendedKeyUsage = serverAuth   ("나는 서버다")
+#     클라이언트: extendedKeyUsage = clientAuth   ("나는 접속하는 쪽이다")
+#
+#  ★ 같은 CA 가 발급하지만 '용도' 가 인증서 안에 적힌다.
+#    그래서 서버 인증서를 클라이언트 인증서로 돌려쓸 수 없다.
+#    실무에서 "인증서 받았는데 mTLS 만 안 돼요" 의 원인 중 하나가 이것이다.
+#
+#  ★ SAN 이 없다. 클라이언트는 '호스트 이름' 이 없기 때문이다.
+#    (서버는 'partner-gw 라는 이름으로 접속하는 게 맞다' 를 증명해야 했지만,
+#     우리는 접속하는 쪽이라 증명할 이름이 없다. 대신 '누구인지' 만 밝힌다)
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = clientAuth

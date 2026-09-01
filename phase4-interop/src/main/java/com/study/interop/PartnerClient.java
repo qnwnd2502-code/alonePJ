@@ -217,6 +217,29 @@ public class PartnerClient {
         return res.getBody();
     }
 
+    // ============================================================
+    //  ★ mTLS 확인용 — 상대 서버가 '우리를 누구로 봤는지' 되돌려받는다.
+    //
+    //  1일차의 echo 와 같은 창구인데, 이번엔 https 로 들어간다.
+    //  달라지는 것: 응답의 '헤더전부' 안에 X-Client-Dn 이 생긴다.
+    //  그 값은 우리가 보낸 게 아니다. 상대 기관 nginx 가
+    //  '우리 인증서에서 읽어내서' 뒷단 앱에 붙여준 것이다.
+    // ============================================================
+    public Map<String, Object> echoOverTls() {
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + apiKey);
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+        String url = tlsBaseUrl + "/openapi/echo";
+        log.debug("[연계요청-TLS] GET {}", url);
+
+        ResponseEntity<Map> res = restTemplate.exchange(
+                url, HttpMethod.GET, entity, Map.class);
+
+        return res.getBody();
+    }
+
     // ------------------------------------------------------------
     //  로그에 찍기 전에 키를 가린다. 실무에서 반드시 있어야 하는 코드.
     //  앞 4글자만 남기는 이유: 어떤 키를 썼는지 구분은 돼야 장애 추적이 된다.

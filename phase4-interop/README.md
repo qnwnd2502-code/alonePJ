@@ -107,7 +107,8 @@ docker compose exec partner-db psql -U partner_ro -d partnerdb -c "ALTER TABLE c
 |---|---|---|
 | 1 | CA 만들고, 상대 기관 서버 인증서 발급, nginx 에 장착 | ✅ |
 | 2 | 자바가 거부 (`PKIX path building failed`) → truststore 에 CA 등록 → 통과 | ✅ |
-| 3 | `ssl_verify_client on` → 상대가 **우리** 신분증을 요구 → keystore | ⬜ **다음 시간** |
+| 3 | `ssl_verify_client on` → 상대가 **우리** 신분증을 요구 → keystore | ✅ |
+| 4 | 상대 nginx 가 `X-Client-DN` 으로 우리 신원을 뒷단 앱에 넘기는 것 확인 | ✅ |
 
 ## 누가 누구인가 (헷갈리면 여기를 본다)
 
@@ -191,3 +192,108 @@ certs/ca.crt
 | `cannot find symbol: connectTimeout` | 스프링부트 3.3 은 `setConnectTimeout`. 3.4 부터 `connectTimeout` | **버전이 다르면 메서드 이름도 다르다.** 에러가 클래스명까지 알려준다 |
 
 ★ 로그에서 `at` 으로 시작하는 줄은 전부 무시. 원인은 `Caused by:` 와 `at` 아닌 줄에 있다.
+
+---
+
+# 실습 3 후반 — mTLS 완성 (2026-09-01)
+
+## 우리 클라이언트 인증서 만드는 명령
+
+```powershell
+# 1) 우리 개인키 + 신청서. -subj 의 O=/CN= 가 곧 우리 신원이 된다
+docker compose exec boot openssl req -newkey rsa:2048 -nodes -keyout /app/certs/client.key -out /app/certs/client.csr -subj "/C=KR/O=Our SI Company/CN=interop-client"
+
+# 2) 같은 CA 가 서명. 서버용과 다른 건 -extfile 하나 (clientAuth)
+docker compose exec boot openssl x509 -req -in /app/certs/client.csr -CA /app/certs/ca.crt -CAkey /app/certs/ca.key -CAcreateserial -days 825 -sha256 -extfile /app/partner-gw/client-san.ext -out /app/certs/client.crt
+
+# 3) 개인키 + 신분증 + 발급자 를 하나로 묶어 keystore 만들기
+docker compose exec boot openssl pkcs12 -export -inkey /app/certs/client.key -in /app/certs/client.crt -certfile /app/certs/ca.crt -name interop-client -out /app/certs/keystore.p12 -passout pass:changeit
+
+# 4) 확인. TLS Web Client Authentication 이 보여야 한다
+docker compose exec boot openssl x509 -in /app/certs/client.crt -noout -subject -issuer -ext extendedKeyUsage
+```
+
+## truststore vs keystore
+
+| | 안에 든 것 | 역할 | 새면 |
+|---|---|---|---|
+| `truststore.p12` | 공개 인증서만 (ca.crt) | **남을 검증** | 별일 없음 |
+| `keystore.p12` | **개인키 + 우리 인증서** 🔑 | **나를 증명** | **끝. 남이 우리 행세를 한다** |
+
+`.gitignore` 에 `*.p12` 를 넣은 이유가 keystore 때문이다. `.key` 와 같은 급으로 취급한다.
+
+## 양쪽 설정의 대칭
+
+```
+우리 쪽 (application.properties)          상대 쪽 (nginx.conf)
+─────────────────────────────────         ──────────────────────────────
+truststore.location = truststore.p12  ←→  ssl_certificate     partner.crt
+  (ca.crt 를 넣어둠 = 이 CA 를 믿는다)        (자기 신분증을 내민다)
+
+keystore.location   = keystore.p12    ←→  ssl_client_certificate ca.crt
+  (우리 신분증을 내민다)                     (이 CA 를 믿는다)
+                                          ssl_verify_client on
+                                            (신분증 없으면 거절)
+```
+
+★ **양쪽이 같은 CA 를 믿기로 합의한 것** 이 mTLS 의 전부다.
+   실무에서는 이 합의를 연계 규격서에 적고 인증서를 주고받는 일로 한다.
+
+## nginx 의 400 두 종류 — 구분해야 한다
+
+| 상황 | nginx 가 하는 말 | 원인 |
+|---|---|---|
+| 신분증을 **안 보냄** | `400 No required SSL certificate was sent` | 우리 설정에 keystore 가 없다 |
+| 보냈는데 **CA 가 다름** | `400 The SSL certificate error` | 발급받은 곳이 상대가 믿는 곳이 아니다 |
+
+★ **자바 예외로 나면 우리가 거절한 것, HTTP 상태코드로 오면 상대가 거절한 것.**
+   지난번 PKIX 는 연결 자체가 안 맺어진 것(응답 없음), 오늘 400 은 연결은 됐고 거절 응답을 받은 것.
+
+## X-Client-DN — 상대 앱은 인증서를 몰라도 된다
+
+```
+우리   : keystore.p12 안의 client.crt 를 핸드셰이크에서 제시
+         ↓
+nginx  : 검증하고 $ssl_client_s_dn 에 담아 X-Client-DN 헤더로 뒷단에 붙여줌
+         ↓
+상대 앱: 헤더 한 줄만 읽으면 "누가 왔는지" 안다
+```
+
+실제로 받은 값:
+```
+x-client-dn     = CN=interop-client,O=Our SI Company,C=KR
+x-client-verify = SUCCESS
+```
+
+★ **독해 신호**: 전자정부 소스에서 `request.getHeader("X-Client-DN")` 을 보면
+   "앞에 mTLS 하는 웹서버가 있다" 는 뜻이다. 자바 코드에는 인증서 얘기가 한 줄도 없을 수 있다.
+
+## API Key 와 클라이언트 인증서의 차이
+
+| | API Key | 클라이언트 인증서 |
+|---|---|---|
+| 증명 방식 | **아는 것** (비밀값) | **가진 것** (개인키) |
+| 비밀을 누가 갖나 | **양쪽이 같은 값**을 갖는다 | 개인키는 **우리만**. 상대는 검증만 |
+| 네트워크에 나가나 | **매 요청마다 실제 값이 나간다** | **개인키는 절대 안 나간다** (서명만) |
+| 로그에 남으면 | 그 자체가 유출 (1일차 실습) | DN 은 남아도 비밀이 아니다 |
+| 상대 DB 가 털리면 | **우리 키도 털린다** | 우리 것은 안전 (공개 인증서만 있음) |
+| 폐기 | 재발급 + 양쪽 설정 변경 | CRL/OCSP 로 그 인증서만 폐기, CA 유지 |
+| 기관이 100곳이면 | 상대가 키 100개를 관리 | **CA 1개만 믿으면 됨** |
+| 무엇을 식별하나 | 보통 **업무/계정 단위** | 보통 **기관/서버 단위** |
+
+★ 둘은 대체재가 아니다. **오늘 우리는 실제로 둘을 같이 썼다.**
+```
+클라이언트 인증서 : "우리 회사 서버가 맞다"        <- 채널(회선) 단위 인증
+Authorization 헤더: "이 업무를 볼 권한이 있다"     <- 요청 단위 인가
+```
+공공 연계에서 mTLS 는 '기관 대 기관 회선을 믿는 층' 이고,
+그 위에 API Key/토큰이 '누가 무엇을 할 수 있나' 를 얹는다. 층이 다르다.
+
+## 오늘 밟은 함정
+
+| 증상 | 원인 | 규칙 |
+|---|---|---|
+| 파일이 있는데 `FileNotFoundException` | `.properties` **줄 끝 공백**이 값에 포함됨 | 자바가 값을 `'...'` 로 감싸주면 **따옴표 안쪽 양 끝**을 본다 |
+
+`nginx -s reload` vs `restart`: reload 는 설정만 다시 읽어 **무중단**. 운영 웹서버는 reload 가 기본.
+자바 앱은 reload 가 없어서 `restart` 뿐이다.
