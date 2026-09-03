@@ -35,6 +35,22 @@
 
         <!-- JDBC 드라이버 = 자바와 DB 사이의 통역사. DB 종류가 바뀌면 이 한 줄만 바꾼다.
              회사(공공)는 대부분 ojdbc(오라클) 또는 티베로 드라이버가 여기 있다. -->
+        <!-- ============================================================
+             Apache HttpClient 5.
+             ★ 왜 넣는가 (실무 이유 2개)
+               1) RestTemplate 의 기본 구현(JDK 내장)은 커넥션 풀이 없다.
+                  요청마다 TCP+TLS 핸드셰이크를 새로 한다. 연계 호출이 잦으면
+                  이것만으로 응답이 느려진다.
+               2) 오류 응답(4xx/5xx)의 '본문' 을 안정적으로 읽어준다.
+                  기본 구현은 POST 오류에서 본문을 흘리는 경우가 있어
+                  "상대가 왜 거절했는지" 를 못 읽는다. (실제로 겪었다)
+             클래스패스에 있으면 스프링부트가 알아서 이걸 골라 쓴다. 코드 수정 없음.
+             ============================================================ -->
+        <dependency>
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>

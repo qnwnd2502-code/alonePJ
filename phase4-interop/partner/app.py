@@ -137,3 +137,129 @@ def echo(request: Request):
 def health():
     """인증 없이 열어두는 헬스체크. Phase 2 에서 배운 그것."""
     return {"status": "UP"}
+
+
+# =========================================================================
+#  ★ 2026-09-02 추가 — 전문 위·변조 방지 (HMAC 서명 검증)
+#
+#  공공 연계 규격서에 "전문 위·변조 방지" / "서명값(signature)" 항목이 있으면
+#  상대 기관 쪽은 이런 코드를 갖고 있다. 우리는 이걸 통과시켜야 한다.
+#
+#  ★ 왜 TLS 만으로 부족한가
+#    TLS 는 '구간(hop)마다' 지킨다. 우리 -> nginx 구간은 지켜지지만,
+#    nginx 가 암호를 풀고 뒷단 앱에 넘기기 전에 내용을 바꿔도 우리는 모른다.
+#    실제 공공 연계는 [우리]->[DMZ웹서버]->[연계서버/ESB]->[업무시스템] 처럼
+#    TLS 종료 지점이 여러 개다. 그래서 '출발지에서 도착지까지' 를 지키는
+#    별도 장치가 필요하다. 그게 HMAC 이다.
+# =========================================================================
+import hmac
+import hashlib
+import time
+
+# ★ 이 비밀키는 '양쪽이 같은 값' 을 갖고 있어야 한다.
+#   API Key 와 성격이 같다(대칭). 실무에서는 공문/보안메일로 주고받고,
+#   절대 소스에 박지 않는다. (여기서도 환경변수로 받는다)
+HMAC_SECRET = os.getenv("HMAC_SECRET", "없음")
+
+
+def build_canonical(timestamp: str, method: str, path: str, body: str) -> str:
+    """
+    ★ canonical string = '서명할 대상' 을 양쪽이 똑같은 순서·형식으로 조립한 문자열.
+
+      규격서에 이 조립 순서가 반드시 적혀 있다. 한 글자라도 다르면 서명이 안 맞는다.
+      실무에서 HMAC 이 안 맞을 때 원인 3개 중 2번이 바로 이 조립 순서다.
+
+      여기서 정한 규격 (줄바꿈 \n 으로 이어붙인다):
+          timestamp \n method \n path \n body
+    """
+    return "\n".join([timestamp, method, path, body])
+
+
+def calc_signature(canonical: str) -> str:
+    """
+    HMAC-SHA256 을 계산해서 16진수 문자열로 돌려준다.
+
+    ★ 인코딩을 반드시 명시한다(utf-8). 자바 쪽 getBytes(StandardCharsets.UTF_8) 과
+      짝이 맞아야 한다. 한쪽이 cp949 면 한글이 든 요청만 서명이 틀린다.
+    """
+    return hmac.new(
+        HMAC_SECRET.encode("utf-8"),
+        canonical.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+async def verify_signature(request: Request, check_timestamp: bool):
+    """서명을 검증한다. 통과하면 본문 문자열을 돌려주고, 아니면 예외를 던진다."""
+
+    timestamp = request.headers.get("X-Timestamp", "")
+    received  = request.headers.get("X-Signature", "")
+    body      = (await request.body()).decode("utf-8")
+
+    if not timestamp or not received:
+        raise HTTPException(status_code=401, detail="서명 헤더 누락 (X-Timestamp / X-Signature)")
+
+    # ---- 상대 기관은 '복호화' 하지 않는다. 같은 재료로 '다시 계산' 한다 ----
+    canonical = build_canonical(timestamp, request.method, request.url.path, body)
+    expected  = calc_signature(canonical)
+
+    print(f"[서명검증] 받은값={received[:16]}... 계산값={expected[:16]}...")
+
+    # ★ == 가 아니라 compare_digest 를 쓴다.
+    #   == 는 앞에서부터 비교하다 다르면 즉시 멈춘다. 그 '멈추는 시간 차이' 로
+    #   서명을 한 글자씩 알아내는 공격(타이밍 공격)이 가능하다.
+    #   compare_digest 는 항상 같은 시간이 걸린다.
+    if not hmac.compare_digest(received, expected):
+        raise HTTPException(status_code=401, detail="서명 불일치 - 전문이 위조되었거나 비밀키가 다름")
+
+    if check_timestamp:
+        # ★ HMAC 만으로는 '재전송 공격' 을 못 막는다.
+        #   정상 요청을 그대로 복사해 다시 보내면 서명도 그대로 유효하다.
+        #   그래서 규격서에는 HMAC 과 timestamp 가 거의 항상 같이 있다.
+        try:
+            sent_at = int(timestamp)
+        except ValueError:
+            raise HTTPException(status_code=401, detail="X-Timestamp 형식 오류 (밀리초 정수여야 함)")
+
+        age_sec = abs(time.time() - sent_at / 1000)
+        if age_sec > 300:   # 5분
+            raise HTTPException(
+                status_code=401,
+                detail=f"요청이 너무 오래됨 ({int(age_sec)}초 전) - 재전송 공격 의심",
+            )
+
+    return body
+
+
+@app.post("/openapi/file/register")
+async def register_file(request: Request):
+    """
+    ★ 1단계 창구 — HMAC 서명만 검증한다. timestamp 는 안 본다.
+
+      이 창구는 재전송 공격에 열려 있다. 실습에서 직접 확인한다.
+    """
+    body = await verify_signature(request, check_timestamp=False)
+    return {
+        "resultCode": "00",
+        "resultMsg":  "NORMAL SERVICE",
+        "접수결과":    "서명 검증 통과. 등록 접수됨",
+        "받은본문":    body,
+    }
+
+
+@app.post("/openapi/file/register-v2")
+async def register_file_v2(request: Request):
+    """
+    ★ 2단계 창구 — HMAC + timestamp 를 함께 검증한다.
+
+      5분보다 오래된 요청은 거절한다. 재전송 '창(window)' 을 5분으로 좁힌 것이다.
+      ★ 완전히 막는 것은 아니다. 5분 안에 다시 보내면 여전히 통과한다.
+        완전히 막으려면 nonce(1회용 난수)를 서버가 기억해서 재사용을 거부해야 한다.
+    """
+    body = await verify_signature(request, check_timestamp=True)
+    return {
+        "resultCode": "00",
+        "resultMsg":  "NORMAL SERVICE",
+        "접수결과":    "서명 + 시각 검증 통과. 등록 접수됨",
+        "받은본문":    body,
+    }
