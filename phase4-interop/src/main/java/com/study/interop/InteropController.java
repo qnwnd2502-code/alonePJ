@@ -49,6 +49,13 @@ public class InteropController {
         return partnerClient.fileListOverTls();
     }
 
+    // ★ mTLS 의 결승선. 상대 서버가 우리를 '누구로' 봤는지 확인한다.
+    //   응답 안의 헤더전부 > X-Client-Dn 을 볼 것.
+    @GetMapping("/tls-echo")
+    public Map<String, Object> tlsEcho() {
+        return partnerClient.echoOverTls();
+    }
+
     // ============================================================
     //  연계 3형태 중 3) DB 직접
     //  같은 데이터를 두 가지로 가져온다. 결과는 비슷한데 위험도가 다르다.
