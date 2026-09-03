@@ -57,6 +57,40 @@ public class InteropController {
     }
 
     // ============================================================
+    //  전문 위·변조 방지 (HMAC) 실습 창구
+    // ============================================================
+
+    // 1) 정상 서명 -> 통과해야 한다
+    @GetMapping("/hmac-ok")
+    public Map<String, Object> hmacOk() {
+        return partnerClient.hmacOk();
+    }
+
+    // 1-b) 한글 없는 본문으로 정상 서명 -> 인코딩 실험 때 이것만 통과한다
+    @GetMapping("/hmac-ascii")
+    public Map<String, Object> hmacAscii() {
+        return partnerClient.hmacAscii();
+    }
+
+    // 2) 서명은 원본, 본문만 바꿔치기 -> 401 이어야 한다
+    @GetMapping("/hmac-tampered")
+    public Map<String, Object> hmacTampered() {
+        return partnerClient.hmacTampered();
+    }
+
+    // 3) 10분 전 요청을 그대로 재전송 -> HMAC 만 보는 창구는 '통과한다' (문제!)
+    @GetMapping("/hmac-replay-v1")
+    public Map<String, Object> hmacReplayV1() {
+        return partnerClient.hmacOld("/openapi/file/register");
+    }
+
+    // 4) 같은 것을 timestamp 도 보는 창구로 -> 거절당한다
+    @GetMapping("/hmac-replay-v2")
+    public Map<String, Object> hmacReplayV2() {
+        return partnerClient.hmacOld("/openapi/file/register-v2");
+    }
+
+    // ============================================================
     //  연계 3형태 중 3) DB 직접
     //  같은 데이터를 두 가지로 가져온다. 결과는 비슷한데 위험도가 다르다.
     // ============================================================

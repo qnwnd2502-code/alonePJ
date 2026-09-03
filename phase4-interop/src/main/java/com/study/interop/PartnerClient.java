@@ -12,6 +12,7 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import jakarta.annotation.Resource;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 // ============================================================
@@ -43,6 +44,10 @@ public class PartnerClient {
 
     @Resource
     private RestTemplate restTemplate;
+
+    // 서명을 만들어주는 부품. 계산은 저기 맡기고 여기는 '실어 보내는 일' 만 한다.
+    @Resource
+    private HmacSigner hmacSigner;
 
     // ------------------------------------------------------------
     //  방식 1) API Key 를 URL 뒤에 붙여 보낸다 (공공데이터포털 방식)
@@ -238,6 +243,99 @@ public class PartnerClient {
                 url, HttpMethod.GET, entity, Map.class);
 
         return res.getBody();
+    }
+
+    // ============================================================
+    //  ★ 오늘의 주인공 — 전문 위·변조 방지 서명을 실어 POST 로 보낸다.
+    //
+    //  지금까지는 GET 으로 '조회' 만 했다. 서명은 보통 '보내는 내용(본문)' 을
+    //  지키는 것이라 POST 부터 의미가 있다.
+    //
+    //  ★ 4단계로 보면 1일차 헤더 인증과 구조가 똑같다:
+    //    (1) 서명할 대상을 조립(canonical)  (2) 서명 계산  (3) 헤더에 싣기  (4) 보내기
+    // ============================================================
+    public Map<String, Object> registerWithSignature(String path, String body, boolean tamper, String fixedTimestamp) {
+
+        // (1) 서명할 대상을 조립한다. 상대 코드와 순서가 같아야 한다.
+        String timestamp = (fixedTimestamp != null)
+                ? fixedTimestamp
+                : String.valueOf(System.currentTimeMillis());
+
+        String canonical = hmacSigner.canonical(timestamp, "POST", path, body);
+
+        // (2) 서명을 계산한다.
+        String signature = hmacSigner.sign(canonical);
+
+        // ★ 변조 실험용: 서명은 위 본문으로 만들고, 실제로 보내는 본문만 바꾼다.
+        //   중간 경유지가 내용을 바꿔치기한 상황을 흉내낸 것이다.
+        String bodyToSend = tamper
+                ? body.replace("민원신청서", "다른파일로바꿔치기")
+                : body;
+
+        // (3) 헤더에 싣는다. 본문은 평문 그대로다(HMAC 은 숨기지 않는다).
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("Authorization", "Bearer " + apiKey);
+        headers.set("X-Timestamp", timestamp);
+        headers.set("X-Signature", signature);
+
+        HttpEntity<String> entity = new HttpEntity<>(bodyToSend, headers);
+
+        String url = tlsBaseUrl + path;
+        log.debug("[연계요청-서명] POST {}", url);
+        log.debug("[서명대상] {}", canonical.replace("\n", " / "));   // 줄바꿈을 눈에 보이게
+        log.debug("[서명값]   {}", signature);
+        if (tamper) {
+            log.debug("[변조]     본문을 바꿔서 보낸다: {}", bodyToSend);
+        }
+
+        // (4) 보낸다. 401 이면 HttpClientErrorException 이 튀므로 여기서 잡아 분류한다.
+        try {
+            ResponseEntity<Map> res = restTemplate.exchange(
+                    url, HttpMethod.POST, entity, Map.class);
+            return res.getBody();
+
+        } catch (HttpClientErrorException e) {
+            // 4xx = 우리 요청이 잘못된 것. 재시도해도 똑같다(1일차 실패 3분류).
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("결과", "거절당함 (4xx - 재시도 무의미)");
+            out.put("상태코드", e.getStatusCode().value());
+            // ★ 인코딩을 명시한다. 안 하면 스프링이 ISO-8859-1 로 읽어서
+            //   상대가 보낸 한글 메시지가 깨진다. (오늘 자바 10분과 같은 함정)
+            out.put("상대가한말", e.getResponseBodyAsString(java.nio.charset.StandardCharsets.UTF_8));
+            return out;
+        }
+    }
+
+    // 실습용 창구들. 본문은 같고 '무엇을 비틀었는지' 만 다르다.
+    private static final String SAMPLE_BODY =
+            "{\"atchFileId\":\"FILE_000000000000123\",\"orignlFileNm\":\"민원신청서.pdf\"}";
+
+    /** 정상 서명 요청 */
+    public Map<String, Object> hmacOk() {
+        return registerWithSignature("/openapi/file/register", SAMPLE_BODY, false, null);
+    }
+
+    // ★ 인코딩 실험용 — 본문에 '한글이 없는' 요청.
+    //   인코딩이 틀렸을 때 hmac-ok(한글 있음)는 실패하고 이건 성공한다.
+    //   그 차이가 곧 "인코딩 문제다" 라는 진단이다.
+    private static final String ASCII_BODY =
+            "{\"atchFileId\":\"FILE_000000000000123\",\"orignlFileNm\":\"report.pdf\"}";
+
+    /** 한글 없는 본문으로 정상 서명 요청 */
+    public Map<String, Object> hmacAscii() {
+        return registerWithSignature("/openapi/file/register", ASCII_BODY, false, null);
+    }
+
+    /** 서명은 원본으로 만들고 본문만 바꿔치기 -> 상대가 잡아내야 한다 */
+    public Map<String, Object> hmacTampered() {
+        return registerWithSignature("/openapi/file/register", SAMPLE_BODY, true, null);
+    }
+
+    /** 10분 전 timestamp 로 서명 -> 서명 자체는 유효하다. v1 은 통과, v2 는 거절 */
+    public Map<String, Object> hmacOld(String path) {
+        String old = String.valueOf(System.currentTimeMillis() - 600_000L);
+        return registerWithSignature(path, SAMPLE_BODY, false, old);
     }
 
     // ------------------------------------------------------------
