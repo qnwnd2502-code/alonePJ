@@ -18,6 +18,9 @@ public class InteropController {
     @Resource
     private PartnerClient partnerClient;
 
+    @Resource
+    private TokenClient tokenClient;
+
     // 1) URL 에 키를 붙여 호출 (공공데이터포털 방식)
     @GetMapping("/list-urlkey")
     public Map<String, Object> listByUrlKey() {
@@ -88,6 +91,54 @@ public class InteropController {
     @GetMapping("/hmac-replay-v2")
     public Map<String, Object> hmacReplayV2() {
         return partnerClient.hmacOld("/openapi/file/register-v2");
+    }
+
+    // ============================================================
+    //  OAuth2 / JWT 실습 창구
+    // ============================================================
+
+    // 1) 토큰을 발급받는다. 응답 그대로 본다.
+    @GetMapping("/token")
+    public Map<String, Object> token(
+            @RequestParam(defaultValue = "HS256") String alg) {
+        return tokenClient.issueToken(alg);
+    }
+
+    // 2) ★ 토큰 안을 열어본다. 비밀키 없이 내용이 다 보인다.
+    @GetMapping("/token-peek")
+    public Map<String, Object> tokenPeek(
+            @RequestParam(defaultValue = "HS256") String alg) {
+
+        Map<String, Object> issued = tokenClient.issueToken(alg);
+        return tokenClient.peek((String) issued.get("access_token"));
+    }
+
+    // 3) 발급받은 토큰으로 실제 API 를 부른다. (정상 흐름)
+    @GetMapping("/jwt-call")
+    public Map<String, Object> jwtCall(
+            @RequestParam(defaultValue = "HS256") String alg) {
+
+        Map<String, Object> issued = tokenClient.issueToken(alg);
+        return tokenClient.callWithToken((String) issued.get("access_token"));
+    }
+
+    // 4) ★ 토큰 내용을 바꿔치기한다 -> 401. 서명이 지킨다.
+    //    권한범위를 file.read -> admin.all 로 올려보는 '권한 상승' 시도다.
+    @GetMapping("/jwt-tampered")
+    public Map<String, Object> jwtTampered(
+            @RequestParam(defaultValue = "HS256") String alg) {
+
+        Map<String, Object> issued = tokenClient.issueToken(alg);
+        String token = (String) issued.get("access_token");
+
+        String fake = tokenClient.tamper(token, "file.read file.write", "admin.all");
+        return tokenClient.callAndReport(fake);
+    }
+
+    // 5) ★ 만료된 토큰 -> 401. 그래서 재발급 로직이 필요하다.
+    @GetMapping("/jwt-expired")
+    public Map<String, Object> jwtExpired() {
+        return tokenClient.callAndReport(tokenClient.issueExpiredToken());
     }
 
     // ============================================================

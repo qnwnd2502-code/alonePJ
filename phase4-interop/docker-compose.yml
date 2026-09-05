@@ -22,6 +22,8 @@ services:
       # ★ 전문 위·변조 방지용 공유 비밀키. 아래 partner 에도 '같은 값' 이 들어간다.
       #   양쪽이 같아야 서명이 맞는다(대칭). .env 에서 온다.
       HMAC_SECRET: ${HMAC_SECRET}
+      # OAuth2 자격증명. 이걸로 토큰을 받는다.
+      PARTNER_CLIENT_SECRET: ${PARTNER_CLIENT_SECRET}
       # ★ 상대 기관 DB 에 직접 붙는 정보. 상대가 우리에게 발급해준 계정이다.
       #   보통 '읽기 전용' 계정을 준다(줘야 한다).
       PARTNER_DB_URL: jdbc:postgresql://partner-db:5432/${PARTNER_DB_NAME}
@@ -47,6 +49,10 @@ services:
       PARTNER_API_KEY: eGov-DEMO-KEY-2026-abcdef123456
       # ★ 우리 boot 와 '같은 값'. 이게 다르면 서명이 안 맞는다.
       HMAC_SECRET: ${HMAC_SECRET}
+      PARTNER_CLIENT_SECRET: ${PARTNER_CLIENT_SECRET}
+      # ★ HS256 서명용. 우리에게도 이 값을 줘야 검증이 된다 = HS256 의 근본 문제.
+      #   (RS256 은 공개키만 주면 되므로 이런 공유가 필요 없다)
+      JWT_HS_SECRET: ${JWT_HS_SECRET}
 
   # ============ 상대 기관의 웹서버 (TLS 종료 지점) ============
   # 상대 기관 전산실 맨 앞에 서 있는 nginx 다. 우리 것이 아니다.

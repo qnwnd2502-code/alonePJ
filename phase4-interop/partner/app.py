@@ -263,3 +263,195 @@ async def register_file_v2(request: Request):
         "접수결과":    "서명 + 시각 검증 통과. 등록 접수됨",
         "받은본문":    body,
     }
+
+
+# =========================================================================
+#  ★ 2026-09-06 추가 — OAuth2 토큰 발급 + JWT 검증
+#
+#  지금까지는 매 요청마다 API Key 원본을 실어 보냈다.
+#  이제는 '한 번 받아서 잠깐 쓰는 임시 신분증(토큰)' 방식으로 바꾼다.
+#
+#  ★ OAuth2 와 JWT 는 다른 층이다. 자주 같이 쓰여서 한 덩어리로 오해한다.
+#      OAuth2 = 토큰을 어떻게 주고받나 (절차)
+#      JWT    = 그 토큰이 어떻게 생겼나 (형식)
+#
+#  ★ 여기 쓰는 흐름은 client_credentials.
+#    OAuth2 흐름 중 '사람 로그인이 없는 시스템 대 시스템' 용이다.
+#    (화면에서 '네이버로 로그인' 할 때 쓰는 흐름은 authorization_code 로 다르다.
+#     연계에서는 사람이 없으므로 client_credentials 를 쓴다)
+# =========================================================================
+import jwt as pyjwt
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization
+
+# ---- HS256 용 비밀키 (대칭) ----
+# ★ 이 값을 우리(연계 상대)에게도 줘야 검증이 된다. 그게 HS256 의 근본 문제다.
+JWT_HS_SECRET = os.getenv("JWT_HS_SECRET", "없음")
+
+# ---- RS256 용 키쌍 (비대칭) ----
+# ★ 실무에서는 파일로 보관하지만, 여기서는 뜰 때마다 새로 만든다.
+#   중요한 건 '두 개' 라는 것: 개인키로 서명하고 공개키로 검증한다.
+_rsa_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+RS_PRIVATE_PEM = _rsa_key.private_bytes(
+    encoding=serialization.Encoding.PEM,
+    format=serialization.PrivateFormat.PKCS8,
+    encryption_algorithm=serialization.NoEncryption(),
+).decode()
+
+RS_PUBLIC_PEM = _rsa_key.public_key().public_bytes(
+    encoding=serialization.Encoding.PEM,
+    format=serialization.PublicFormat.SubjectPublicKeyInfo,
+).decode()
+
+# 이 기관이 발급해준 클라이언트 자격증명 (연계 규격서에 적혀서 온다)
+CLIENT_ID     = "our-si-company"
+CLIENT_SECRET = os.getenv("PARTNER_CLIENT_SECRET", "없음")
+
+
+@app.post("/oauth2/token")
+async def issue_token(request: Request):
+    """
+    ★ 토큰 발급 창구.  OAuth2 client_credentials 흐름.
+
+      규격상 이 창구는 JSON 이 아니라 form 형식(application/x-www-form-urlencoded)
+      으로 받는다. RFC 6749 가 그렇게 정했다.
+      ★ 실무 함정: 여기에 JSON 을 보내면 400 이 난다.
+        "다른 API 는 다 JSON 인데 토큰만 form" 이라서 자주 틀린다.
+    """
+    form = await request.form()
+
+    grant_type = form.get("grant_type", "")
+    client_id  = form.get("client_id", "")
+    secret     = form.get("client_secret", "")
+    alg        = form.get("alg", "HS256")      # 학습용. 실제 규격엔 없는 항목이다.
+
+    if grant_type != "client_credentials":
+        raise HTTPException(status_code=400, detail=f"지원하지 않는 grant_type: {grant_type}")
+
+    if client_id != CLIENT_ID or secret != CLIENT_SECRET:
+        raise HTTPException(status_code=401, detail="client_id 또는 client_secret 불일치")
+
+    now = int(time.time())
+    payload = {
+        "iss":   "partner-agency",       # issuer  - 누가 발급했나
+        "sub":   client_id,              # subject - 누구에게 발급했나
+        "scope": "file.read file.write", # 이 토큰으로 할 수 있는 일
+        "iat":   now,                    # issued at - 발급 시각
+        "exp":   now + 300,              # expiration - 만료 (5분)
+    }
+
+    if alg == "RS256":
+        # 개인키로 서명한다. 검증하는 쪽은 공개키만 있으면 된다.
+        token = pyjwt.encode(payload, RS_PRIVATE_PEM, algorithm="RS256",
+                             headers={"kid": "partner-rsa-2026"})
+    else:
+        # 비밀키로 서명한다. 검증하는 쪽도 '같은 비밀키' 가 있어야 한다.
+        token = pyjwt.encode(payload, JWT_HS_SECRET, algorithm="HS256",
+                             headers={"kid": "partner-hs-2026"})
+
+    print(f"[토큰발급] alg={alg} sub={client_id} exp={payload['exp']}")
+
+    # 응답 형식도 OAuth2 규격이 정해놨다. 이름을 마음대로 못 짓는다.
+    return {
+        "access_token": token,
+        "token_type":   "Bearer",
+        "expires_in":   300,
+        "scope":        payload["scope"],
+    }
+
+
+@app.get("/oauth2/jwks")
+def jwks():
+    """
+    ★ 공개키를 나눠주는 창구.
+
+      RS256 을 쓰면 검증하는 쪽이 '공개키' 를 알아야 한다.
+      메일로 파일을 주고받는 대신 이렇게 HTTP 로 공개한다.
+      실제 표준은 JWKS(JSON Web Key Set) 형식이지만, 학습용으로 PEM 을 그대로 준다.
+
+      ★ 이 창구는 인증이 없다. 공개키는 '공개' 해도 되는 값이기 때문이다.
+        -> HS256 이었다면 이런 창구를 절대 만들 수 없다. 그게 차이다.
+    """
+    return {"kid": "partner-rsa-2026", "alg": "RS256", "public_key_pem": RS_PUBLIC_PEM}
+
+
+def verify_token(auth_header: str) -> dict:
+    """Authorization 헤더에서 토큰을 꺼내 검증한다."""
+
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authorization 헤더가 없거나 Bearer 형식이 아님")
+
+    token = auth_header[7:]
+
+    # ★ 어떤 알고리즘으로 서명됐는지는 헤더에 적혀 있다. 먼저 열어본다.
+    #   (이건 '검증' 이 아니라 그냥 읽는 것이다. 누구나 할 수 있다)
+    try:
+        head = pyjwt.get_unverified_header(token)
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"토큰 형식 오류: {e}")
+
+    alg = head.get("alg", "")
+
+    # 🚨 알고리즘을 '토큰이 말하는 대로' 믿으면 안 된다.
+    #   공격자가 alg 를 none 이나 다른 것으로 바꿔 보내는 공격이 있다.
+    #   서버가 받아들일 알고리즘을 '우리가' 정해서 넘긴다.
+    try:
+        if alg == "RS256":
+            claims = pyjwt.decode(token, RS_PUBLIC_PEM, algorithms=["RS256"])
+        elif alg == "HS256":
+            claims = pyjwt.decode(token, JWT_HS_SECRET, algorithms=["HS256"])
+        else:
+            raise HTTPException(status_code=401, detail=f"허용하지 않는 알고리즘: {alg}")
+
+    except pyjwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="토큰 만료됨 - 재발급 필요")
+    except pyjwt.InvalidSignatureError:
+        raise HTTPException(status_code=401, detail="서명 불일치 - 토큰이 위조됨")
+    except pyjwt.PyJWTError as e:
+        raise HTTPException(status_code=401, detail=f"토큰 검증 실패: {e}")
+
+    print(f"[토큰검증] alg={alg} sub={claims.get('sub')} scope={claims.get('scope')}")
+    return claims
+
+
+@app.get("/openapi/file/list-jwt")
+def file_list_jwt(authorization: str = Header(default="")):
+    """
+    ★ 토큰으로 보호되는 창구. API Key 대신 토큰을 본다.
+
+      돌려주는 내용은 기존 list 와 같다. 달라진 건 '문을 여는 방법' 뿐이다.
+    """
+    claims = verify_token(authorization)
+
+    return {
+        "resultCode": "00",
+        "resultMsg":  "NORMAL SERVICE",
+        "인증정보": {
+            "누구":     claims.get("sub"),
+            "발급자":   claims.get("iss"),
+            "권한범위": claims.get("scope"),
+        },
+        "totalCount": len(FILE_TABLE),
+        "items":      FILE_TABLE,
+    }
+
+@app.post("/oauth2/token-expired")
+async def issue_expired_token():
+    """
+    ★ 학습 전용 — '이미 만료된' 토큰을 발급한다. 실제 기관 API 에는 없다.
+
+      서명은 완전히 정상이다. exp 만 과거다.
+      -> 서명 검증은 통과하고 만료 검증에서 걸린다. 둘은 다른 검사다.
+    """
+    now = int(time.time())
+    payload = {
+        "iss": "partner-agency",
+        "sub": CLIENT_ID,
+        "scope": "file.read file.write",
+        "iat": now - 3600,
+        "exp": now - 3000,        # 50분 전에 이미 만료됨
+    }
+    token = pyjwt.encode(payload, JWT_HS_SECRET, algorithm="HS256",
+                         headers={"kid": "partner-hs-2026"})
+    return {"access_token": token, "token_type": "Bearer", "expires_in": -3000}
