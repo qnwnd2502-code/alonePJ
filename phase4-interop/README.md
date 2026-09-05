@@ -412,3 +412,147 @@ TLS 암호화           - 엿듣기 차단              <- Phase 2
 
 `nginx.conf` 에 `proxy_http_version 1.1;` 도 추가했다. nginx 기본값이 1.0 인데,
 1.0 은 keep-alive 가 없어 뒷단과 매 요청마다 연결을 새로 맺는다.
+
+---
+
+# 실습 5 — OAuth2 / JWT (2026-09-06)
+
+## 무엇이 달라졌나
+
+```
+지금까지 : 매 요청마다 API Key 원본을 실어 보냄  (비밀값이 매번 나간다)
+오늘부터 : (1) 한 번 자격증명으로 토큰을 받고
+           (2) 그 뒤엔 토큰만 보냄
+           (3) 만료되면 다시 받음
+```
+
+토큰은 **유효기간 있는 임시 신분증**이다. 새어도 몇 분 뒤 쓸모없어진다.
+대신 **재발급 로직**이 필요해진다(회사 소스의 `TokenManager` 가 하는 일).
+
+## OAuth2 와 JWT 는 다른 층이다
+
+```
+OAuth2 = 토큰을 어떻게 주고받나 (절차)   <- RFC 6749
+JWT    = 그 토큰이 어떻게 생겼나 (형식)
+```
+
+연계는 사람 로그인이 없으므로 **client_credentials** 흐름을 쓴다.
+(화면의 '네이버로 로그인' 은 authorization_code 로 다른 흐름이다)
+
+## ★ 실무 함정 — 토큰 창구만 form 형식이다
+
+```java
+headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);   // JSON 이 아니다
+MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+form.add("grant_type", "client_credentials");
+```
+
+다른 API 는 전부 JSON 인데 **토큰 창구만 form** 이다. RFC 6749 가 그렇게 정했다.
+JSON 을 보내면 400 이 난다.
+(상대 서버 쪽도 마찬가지다. FastAPI 에 `python-multipart` 가 없어서 500 이 났다)
+
+응답 항목 이름(`access_token` `token_type` `expires_in`)도 **표준이 정한 것**이라
+어느 기관 API 든 같다. 한 번 배우면 계속 쓴다.
+
+## ★ JWT 는 암호화가 아니다
+
+```
+eyJhbGciOiJIUzI1NiJ9 . eyJzdWIiOiJvdXItc2kifQ . 3d9843f64521...
+└──── (1) 헤더 ────┘   └──── (2) 내용 ────┘   └── (3) 서명 ──┘
+      Base64                 Base64              열쇠가 있어야 만듦
+```
+
+(1)(2)는 **비밀키 없이 누구나 읽는다.** `/interop/token-peek` 로 직접 확인했다.
+🚨 **JWT 안에 비밀번호·주민번호·개인정보를 넣지 않는다.**
+
+공격자가 **할 수 있는 것**: 열어보기 / 내용 바꾸기 / 다시 인코딩
+공격자가 **못 하는 것**: 바꾼 내용에 맞는 **서명 만들기** <- 여기서 막힌다
+→ 지난 시간 HMAC 과 완전히 같은 구조. JWT 는 그걸 포장한 형식일 뿐이다.
+
+## Base64 두 종류
+
+```java
+Base64.getDecoder()      // 표준.  + 와 / 를 쓴다
+Base64.getUrlDecoder()   // URL-safe. + -> - , / -> _ , 끝의 = 패딩 없음   <- JWT 는 이것
+```
+
+★ 표준 디코더로도 **대부분 성공한다.** `+` `/` 가 될 바이트가 안 나오면 결과가 같으니까.
+  → **"토큰 디코딩이 가끔 실패해요"** 의 정체. 열에 아홉은 되는데 어쩌다 터진다.
+  인코딩할 때는 `getUrlEncoder().withoutPadding()` 을 쓴다.
+
+## 실습 창구
+
+| 주소 | 무엇을 보나 | 결과 |
+|---|---|---|
+| `/interop/token` | 발급 응답 원문 | `access_token` `expires_in:300` |
+| `/interop/token-peek` | **비밀키 없이 내용 읽기** | 헤더·내용이 JSON 으로 다 보임 |
+| `/interop/jwt-call?alg=HS256` | 토큰으로 API 호출 | 200 |
+| `/interop/jwt-call?alg=RS256` | 같은 것, 다른 알고리즘 | 200 (**결과가 똑같다**) |
+| `/interop/jwt-tampered` | scope 를 admin.all 로 올림 | **401 서명 불일치** |
+| `/interop/jwt-expired` | exp 만 과거인 토큰 | **401 토큰 만료** |
+
+★ 서명 검증과 만료 검증은 **다른 검사**다. `jwt-expired` 는 서명이 완전히 정상이다.
+
+## ★ HS256 vs RS256 — 오늘의 결승선
+
+```
+HS256                          RS256
+[상대] 비밀키 1개                [상대] 개인키 (밖으로 안 나감)
+   v 서명                          v 서명
+ 토큰                            토큰
+   |  검증하려면                   |  검증하려면
+   v  같은 비밀키가 필요            v  공개키만 있으면 됨
+[우리] 비밀키 복사본 🔑           [우리] 공개키 📄
+```
+
+| | HS256 | RS256 |
+|---|---|---|
+| 열쇠 | 1개 (공유) | 2개 |
+| 상대에게 주는 것 | 🔴 **비밀키 원본** | 🟢 공개키 |
+| 기관 10곳이면 | 🔴 비밀키가 10곳에 복사됨 | 🟢 문제없음 |
+| 한 곳이 털리면 | 🔴 **전부 재발급** | 🟢 아무 일 없음 |
+| 상대가 토큰을 위조하면 | 🔴 **구분 불가** | 🟢 불가능 |
+| 부인방지 | ❌ | ✅ |
+
+★ **한 줄 규칙: 만드는 쪽과 검증하는 쪽이 같은 조직이면 HS256, 다른 조직이면 RS256.**
+  **공공 연계는 항상 다른 조직이다 → RS256.**
+
+🚨 **쓰는 쪽에서는 차이가 안 보인다.** 코드도 결과도 같다. 잘못 골라도 테스트가 다 통과한다.
+   차이는 동작이 아니라 **'누가 무엇을 갖고 있어야 하는가'** 에서 난다.
+
+## JWKS — 공개키를 HTTP 로 나눠주는 창구
+
+```powershell
+docker compose exec boot curl --cert /app/certs/client.crt --key /app/certs/client.key --cacert /app/certs/ca.crt https://partner-gw:8443/oauth2/jwks
+```
+
+★ **이 창구에는 인증이 없다.** 공개키는 공개해도 되는 값이기 때문이다.
+  **HS256 이었다면 이런 창구를 만들 수 없다** — 비밀키를 HTTP 로 뿌리는 셈이니까.
+  이 창구가 존재할 수 있다는 것 자체가 비대칭의 값어치다.
+
+실무 신호: 상대 기관이 **"JWKS URL 드릴게요"** 하면 = "RS256 쓰고 공개키는 여기서 받아가세요".
+`kid`(key id)로 어느 열쇠인지 구분하므로, 기관이 열쇠를 바꿔도 우리는 코드를 안 고친다.
+
+## 🚨 alg 혼동 공격
+
+```python
+if alg == "RS256":   claims = pyjwt.decode(token, RS_PUBLIC_PEM, algorithms=["RS256"])
+elif alg == "HS256": claims = pyjwt.decode(token, JWT_HS_SECRET, algorithms=["HS256"])
+else:                raise HTTPException(401, f"허용하지 않는 알고리즘: {alg}")
+```
+
+`alg` 는 **토큰 안에 적혀 있다 = 공격자가 고칠 수 있는 값이다.**
+그대로 믿으면 `alg: none` 으로 바꿔 서명을 지우는 공격이 통한다.
+→ 서버가 **받아들일 알고리즘을 명시**해야 한다(`algorithms=[...]`).
+
+★ 회사 소스에서 JWT 검증 코드를 보면 `algorithms` / `setAllowedAlgorithms` 가 있는지 확인할 것.
+  없으면 취약점이다. 시큐어코딩 점검 항목(Phase 4.5 에서 재회).
+
+## 지금까지 쌓은 층 (Phase 4 전체)
+
+```
+토큰(JWT)     - 지금 이 요청이 허용된 업무인가        <- 실습 5
+HMAC          - 전문이 안 바뀌었나                   <- 실습 4
+mTLS(RSA)     - 접속하는 게 누구인가                 <- 실습 3
+TLS 암호화     - 엿듣기 차단                        <- Phase 2
+```
