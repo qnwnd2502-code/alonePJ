@@ -213,4 +213,68 @@ public class InteropController {
         r.put("설명", "HTTP 로 바이너리를 받아왔다. 경로가 아니라 실물이다");
         return r;
     }
+
+    // ============================================================
+    //  실습 6 : 장애 3종 (타임아웃 / 재시도 / 멱등성)
+    // ============================================================
+
+    @Resource
+    private ResilientClient resilientClient;
+
+    // --- (1) 타임아웃 ---
+
+    // 상대가 sec 초 걸린다. 우리 readTimeout 은 5초.
+    //   sec=2 -> 성공,  sec=8 -> 타임아웃
+    @GetMapping("/slow")
+    public Map<String, Object> slow(@RequestParam(defaultValue = "8") int sec) {
+        return resilientClient.callSlow(sec, true);
+    }
+
+    // 같은 호출을 '타임아웃 없는' RestTemplate 으로. 끝날 때까지 안 돌아온다.
+    // 이 창구를 여러 개 동시에 때리면 톰캣 스레드가 말라붙는다.
+    @GetMapping("/slow-notimeout")
+    public Map<String, Object> slowNoTimeout(@RequestParam(defaultValue = "30") int sec) {
+        return resilientClient.callSlow(sec, false);
+    }
+
+    // 외부 호출이 없는 창구. 위가 스레드를 다 먹었는지 이걸로 확인한다.
+    @GetMapping("/ping")
+    public Map<String, Object> ping() {
+        return resilientClient.ping();
+    }
+
+    // --- (2) 재시도 ---
+
+    @GetMapping("/flaky-once")
+    public Map<String, Object> flakyOnce() {
+        return resilientClient.flakyOnce();
+    }
+
+    @GetMapping("/flaky-retry")
+    public Map<String, Object> flakyRetry(@RequestParam(defaultValue = "5") int max) {
+        return resilientClient.flakyWithRetry(max);
+    }
+
+    // --- (3) 멱등성 ---
+
+    // 같은 결제를 times 번 보낸다. key=off 면 멱등성 키를 안 붙인다.
+    @GetMapping("/pay")
+    public Map<String, Object> pay(@RequestParam(defaultValue = "ORD-2026-0001") String order,
+                                   @RequestParam(defaultValue = "50000") int amount,
+                                   @RequestParam(defaultValue = "3") int times,
+                                   @RequestParam(defaultValue = "off") String key) {
+        return resilientClient.pay(order, amount, times, "on".equalsIgnoreCase(key));
+    }
+
+    // 상대 기관 원장. 실제로 몇 건이 처리됐는지 여기서 센다.
+    @GetMapping("/payments")
+    public Map<String, Object> payments() {
+        return resilientClient.payments();
+    }
+
+    // 실습 사이에 상태를 되돌린다.
+    @GetMapping("/reset")
+    public Map<String, Object> reset() {
+        return resilientClient.resetAll();
+    }
 }

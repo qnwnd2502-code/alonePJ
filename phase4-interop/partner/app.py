@@ -455,3 +455,116 @@ async def issue_expired_token():
     token = pyjwt.encode(payload, JWT_HS_SECRET, algorithm="HS256",
                          headers={"kid": "partner-hs-2026"})
     return {"access_token": token, "token_type": "Bearer", "expires_in": -3000}
+
+
+# =========================================================================
+#  실습 6 : 장애 3종 - "상대 기관이 정상이 아닐 때"
+#
+#  연계 상대는 언젠가 반드시 셋 중 하나가 된다.
+#    ① 느려진다      -> 죽지는 않았는데 응답이 안 온다  (가장 흔하고 가장 위험)
+#    ② 가끔 실패한다  -> 열 번에 한 번 500 이 난다
+#    ③ 응답을 못 받았다 -> 처리는 됐는데 우리가 결과를 모른다  (중복의 씨앗)
+#
+#  아래 세 창구가 각각 그 상황을 재현한다.
+#  ★ 상대 기관은 이런 창구를 만들어주지 않는다. 학습용으로 우리가 만든 것이다.
+# =========================================================================
+import time
+import uuid
+
+
+# ---------- ① 느린 상대 ----------
+@app.get("/openapi/slow")
+def slow(sec: int = Query(default=3, description="이 초만큼 자다가 응답")):
+    """
+    sec 초 뒤에 응답한다.
+
+    ★ 여기서 죽는 건 '상대'가 아니라 '기다리는 우리'다.
+      이 서버는 멀쩡하다. 그냥 느릴 뿐이다. 그런데 우리 쪽 스레드가 잡혀 있다.
+    """
+    time.sleep(sec)
+    return {"결과": "정상", "걸린시간": f"{sec}초"}
+
+
+# ---------- ② 가끔 실패하는 상대 ----------
+# 호출 횟수를 세는 통. 상대 기관 서버가 '앞의 N번은 실패' 하도록 만든다.
+_flaky = {"count": 0}
+
+
+@app.get("/openapi/flaky")
+def flaky(fail_times: int = Query(default=2, description="앞의 몇 번을 실패시킬지")):
+    """
+    앞의 fail_times 번은 500, 그 뒤는 성공.
+
+    ★ 500 = 상대 서버 잘못이다. 우리가 똑같이 다시 보내면 성공할 수 있다.
+      (4xx 였다면 우리 요청이 잘못된 것이라 백 번 보내도 똑같다 - 오늘의 핵심 규칙)
+    """
+    _flaky["count"] += 1
+    n = _flaky["count"]
+    if n <= fail_times:
+        raise HTTPException(status_code=500, detail=f"일시적 오류입니다 ({n}번째 호출)")
+    return {"결과": "정상", "성공한호출": f"{n}번째"}
+
+
+@app.post("/openapi/flaky/reset")
+def flaky_reset():
+    _flaky["count"] = 0
+    return {"결과": "초기화됨"}
+
+
+# ---------- ③ 중복 처리 / 멱등성 ----------
+# 상대 기관의 '거래 원장'. 여기 쌓인 줄 수가 곧 '실제로 처리된 건수'다.
+PAYMENTS = []
+
+# 멱등성 키 -> 그 키로 만든 첫 번째 응답.
+# ★ 실무에서는 이게 Redis 나 DB 테이블이다. 재기동해도 남아야 하니까.
+#   (Phase 2 에서 세션을 Redis 로 뺐던 것과 같은 이유)
+IDEM_STORE = {}
+
+
+@app.post("/openapi/payment")
+async def payment(request: Request, idempotency_key: str = Header(default="")):
+    """
+    거래를 등록한다. 결제라고 치자.
+
+    ★ Idempotency-Key 헤더가 있으면 : 같은 키로 다시 오면 새로 만들지 않고
+                                      '첫 번째 결과' 를 그대로 돌려준다.
+      없으면                        : 올 때마다 새 거래를 만든다. (중복 발생)
+
+    FastAPI 는 idempotency_key 라는 파라미터 이름을 Idempotency-Key 헤더로
+    자동 변환해서 읽는다(밑줄 -> 하이픈).
+    """
+    body = await request.json()
+
+    if idempotency_key and idempotency_key in IDEM_STORE:
+        # 이미 처리한 키다. 새로 만들지 않는다.
+        # ★ 여기가 nonce 와 갈리는 지점 - nonce 였다면 '거부' 했겠지만
+        #   멱등성 키는 '첫 결과를 다시 알려준다'.
+        already = dict(IDEM_STORE[idempotency_key])
+        already["처리"] = "이미 처리됨 - 첫 결과를 그대로 돌려줌"
+        return already
+
+    txn = {
+        "거래번호": f"TXN-{len(PAYMENTS) + 1:04d}",
+        "주문번호": body.get("주문번호"),
+        "금액":    body.get("금액"),
+        "처리":    "신규 등록",
+    }
+    PAYMENTS.append(txn)
+
+    if idempotency_key:
+        IDEM_STORE[idempotency_key] = txn
+
+    return txn
+
+
+@app.get("/openapi/payments")
+def payment_list():
+    """상대 기관 원장을 들여다본다. 중복이 몇 건 생겼는지 여기서 센다."""
+    return {"실제처리건수": len(PAYMENTS), "원장": PAYMENTS}
+
+
+@app.post("/openapi/payments/reset")
+def payment_reset():
+    PAYMENTS.clear()
+    IDEM_STORE.clear()
+    return {"결과": "원장 초기화됨"}

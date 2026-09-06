@@ -556,3 +556,215 @@ HMAC          - 전문이 안 바뀌었나                   <- 실습 4
 mTLS(RSA)     - 접속하는 게 누구인가                 <- 실습 3
 TLS 암호화     - 엿듣기 차단                        <- Phase 2
 ```
+
+---
+
+## 실습 6 — 장애 3종 (타임아웃 · 재시도 · 멱등성)
+
+연계 상대는 언젠가 반드시 셋 중 하나가 된다.
+
+```
+① 느려진다        죽지는 않았는데 응답이 안 온다   <- 가장 흔하고 가장 위험
+② 가끔 실패한다    열 번에 한 번 500 이 난다
+③ 응답을 못 받았다  처리는 됐는데 우리가 결과를 모른다  <- 중복의 씨앗
+```
+
+### 파일 지도
+
+```
+partner/app.py                        상대 기관에 장애 재현 창구 3개 추가
+  GET  /openapi/slow?sec=N             느린 상대
+  GET  /openapi/flaky                  앞의 2번은 500, 그 뒤 성공
+  POST /openapi/payment                거래 등록 (Idempotency-Key 인식)
+  GET  /openapi/payments               ★ 상대 원장 - 진실은 여기 있다
+
+src/main/java/com/study/interop/ResilientClient.java    ★ 오늘의 전부
+src/main/resources/application.properties
+  server.tomcat.threads.max=5          운영 기본은 200. 고갈을 재현하려고 줄인 값
+```
+
+### 1막 — 타임아웃
+
+```
+http://localhost:9600/interop/slow?sec=2     -> 성공 (2757ms)
+http://localhost:9600/interop/slow?sec=8     -> 타임아웃 (5004ms)
+```
+
+값의 흐름:
+
+```
+InteropApplication.java  .setReadTimeout(Duration.ofSeconds(5))
+      -> RestTemplate 안의 ClientHttpRequestFactory
+      -> ResilientClient.callSlow()  rt.getForObject(url, ...)
+      -> 소켓에서 5000ms 동안 아무것도 안 읽히면
+      -> java.net.SocketTimeoutException: Read timed out
+      -> 스프링이 감싼다 -> ResourceAccessException   <- 우리가 catch 하는 것
+```
+
+★ 타임아웃에는 HTTP 상태코드가 없다. 상대가 500 을 준 게 아니라 아무 말도 안 한 것이다.
+
+| 잡히는 예외 | 무슨 일이 있었나 | 상대 로그에 | 재시도 |
+|---|---|---|---|
+| HttpServerErrorException 500 | 상대가 받아서 처리하다 터졌다 | 있다 | 조건부 |
+| ResourceAccessException | 상대가 말이 없다 | 있을 수도, 없을 수도 | 위험 |
+
+★ ResourceAccessException 이 무서운 이유: 상대가 처리까지 다 했는데 응답만 못 온 것일 수 있다.
+  우리는 실패로 알고 상대는 성공으로 안다. 이것이 3막(멱등성)의 씨앗이다.
+
+★ 타임아웃은 두 종류다. 장애 보고서에 "타임아웃 5초" 라고만 적혀 있으면 반쪽이다.
+    connectTimeout : 전화를 안 받는다 (방화벽, 서버 다운)
+    readTimeout    : 전화는 받았는데 말을 안 한다 (DB 잠금, 무한루프)
+  흔한 사고 조합 = 연결 3초 / 읽기 무제한.
+
+★ new RestTemplate() 의 기본 타임아웃은 0 이고, 0 은 "즉시 포기" 가 아니라 "무제한" 이다.
+
+### 2막 — 재시도
+
+```
+http://localhost:9600/interop/reset
+http://localhost:9600/interop/flaky-once     -> 500 실패
+http://localhost:9600/interop/reset
+http://localhost:9600/interop/flaky-retry    -> 3회차에 성공
+```
+
+```
+1회차 : 500 -> 200ms 뒤 재시도
+2회차 : 500 -> 400ms 뒤 재시도
+3회차 : 성공
+```
+
+`delayMs *= 2;` 한 줄이 지수 백오프(exponential backoff)다. 간격을 안 늘리면:
+
+```
+상대가 과부하로 500 -> 우리가 0.2초마다 두들김 -> 상대는 더 과부하
+-> 더 많은 500 -> 더 많은 재시도   ... 재시도가 장애를 키운다 (retry storm)
+```
+
+실무에는 여기에 지터(jitter, 대기시간에 난수를 섞음)를 더한다. 서버 100대가 동시에
+실패하면 100대가 정확히 같은 순간 재시도해서 또 무너뜨리기 때문.
+
+★ 무엇을 재시도할 것인가 — 오늘의 핵심 규칙
+
+```
+5xx      상대 서버 잘못   다시 보내면 될 수도 있다    재시도 O
+타임아웃  상대가 느림      다시 보내면 될 수도 있다    재시도 O (조건부)
+4xx      우리 요청 잘못   백 번 보내도 똑같다        재시도 X
+```
+
+회사 소스 점검: catch 가 갈라져 있지 않고 `catch (Exception e)` 로 뭉뚱그려
+재시도하면 의심할 것. 4xx 재시도는 상대 서버만 두들기고 결과는 같으며,
+공공기관 API 는 호출량 제한이 있어 심하면 우리 IP 가 차단된다.
+
+### 3막 — 재시도가 위험해지는 순간 (멱등성)
+
+```
+/interop/reset
+/interop/pay?times=3&key=off
+/interop/payments        -> 실제처리건수 : 3     결제가 3번 됐다
+/interop/reset
+/interop/pay?times=3&key=on
+/interop/payments        -> 실제처리건수 : 1     나머지 2번은 첫 결과를 돌려받음
+```
+
+★ 코드에서 다른 건 딱 한 곳, UUID 를 만드는 '위치' 다.
+
+```java
+public Map<String, Object> pay(...) {
+    String idemKey = UUID.randomUUID().toString();   // ★ 루프 밖
+    for (int i = 1; i <= times; i++) {
+        headers.set("Idempotency-Key", idemKey);     // 3번 다 같은 값
+```
+
+```
+키를 만드는 위치 = 멱등성의 단위
+  for 루프 밖   ->  "업무 1건" 이 단위    맞다
+  for 루프 안   ->  "호출 1번" 이 단위    키가 없는 것과 같다
+```
+
+★ 실무에서 가장 흔한 구현 실수가 정확히 이것이다. 코드는 있는데 위치가 틀린 것.
+  Idempotency-Key 를 세팅하는 코드를 보면 그 키를 어디서 만들었는지 위로 거슬러 올라갈 것.
+
+★ 키 이름은 우리가 발명하는 게 아니라 규격서가 정한다.
+
+```
+Idempotency-Key          상용 API (결제사, 클라우드)
+거래고유번호              금융 연계
+전문관리번호              공공 표준 연계 전문
+요청일련번호 + 기관코드    기관별 자체 규격
+```
+
+규격서에 이런 항목이 없는데 POST 로 등록/결제를 한다면 그 연계는 재시도가 위험하다.
+설계 단계에서 물어봐야 할 항목이다.
+
+★ HTTP 메서드 자체에 이미 답이 있다.
+
+```
+GET     조회      몇 번 해도 같음         원래 멱등. 마음껏 재시도
+PUT     통째 교체  몇 번 해도 같음         원래 멱등
+DELETE  삭제      두 번째는 "이미 없음"    원래 멱등
+POST    등록      할 때마다 새로 생김     <- 여기만 문제
+```
+
+회사 소스에서 재시도 로직을 보면 볼 곳은 하나다. 그 재시도가 감싼 게 POST 인가?
+POST 면 멱등성 키가 붙어 있는지 확인, GET 이면 넘어가도 된다.
+
+★ nonce 와 멱등성 키 (실습 4 에서 이어짐)
+
+| | 누가 다시 보냈나 | 어떻게 대응 |
+|---|---|---|
+| nonce | 공격자가 몰래 복사 | 거부한다 |
+| 멱등성 키 | 우리가 못 받아서 재시도 | 첫 결과를 돌려준다 |
+
+app.py 의 IDEM_STORE 는 학습용 메모리 딕셔너리다. 실무에서는 Redis 나 DB 테이블이어야 한다.
+재기동해도 남아야 하기 때문. (Phase 2 에서 세션을 Redis 로 뺀 것과 같은 이유)
+
+### 4막 — 스레드 풀 고갈
+
+PowerShell 창 2개.
+
+```powershell
+# 1번 창 : 느린 호출 5개로 스레드를 전부 점유
+1..5 | ForEach-Object { Start-Job { curl.exe -s -m 60 "http://localhost:9600/interop/slow-notimeout?sec=25" } }
+
+# 2번 창 : 3초 안에, 연계와 아무 상관 없는 창구를 호출
+Measure-Command { curl.exe -s -m 15 "http://localhost:9600/interop/ping" }
+
+# 정리
+Get-Job | Remove-Job -Force
+```
+
+/ping 은 외부 호출이 하나도 없는 창구인데 응답이 안 온다. (실측: 15초 타임아웃, 종료코드 28)
+
+```
+톰캣 스레드 5개 (운영은 200개)
+  1~5 -> slow-notimeout 에 전부 잠김
+  /ping, /login, /main  ->  처리할 스레드가 없어 대기
+```
+
+★ 연계 상대 한 곳이 느려졌을 뿐인데 우리 서비스 전체가 멎는다.
+  장애 보고서에 "OO기관 연계 서버 응답 지연으로 포털 전체 서비스 불가" 로 적히는 사건의 정체.
+  이름은 스레드 풀 고갈(thread pool exhaustion).
+
+★ 스레드를 늘리는 건 대개 해결이 아니라 '터지는 시각을 늦추는 것' 이다.
+  진짜 원인은 대부분 '돌아오지 않는 외부 호출' 이다.
+
+다음 단계 장치는 차단기(Circuit Breaker) — 상대가 계속 실패하면 아예 호출을 멈추고
+즉시 실패시킨다(Resilience4j 등). 단, 타임아웃이 없으면 차단기도 소용없다. 순서가 있다.
+
+### GS 인증 신뢰성 시험과의 대응
+
+| GS 신뢰성 부특성 | 시험원이 하는 것 | 오늘 대비한 것 |
+|---|---|---|
+| 결함허용성 | 연동 서버를 죽이고 화면을 눌러봄 | 타임아웃 -> 우리는 안 죽음 |
+| 회복성 | 죽였던 서버를 살림 | 재시도 -> 저절로 복구 |
+| 성숙도 | 같은 조작을 반복 (저장 버튼 연타) | 멱등성 -> 중복 안 생김 |
+
+### Phase 4 누적 층
+
+```
+장애 3종      - 상대가 정상이 아닐 때 우리가 버티나   <- 실습 6
+토큰(JWT)     - 지금 이 요청이 허용된 업무인가        <- 실습 5
+HMAC          - 전문이 안 바뀌었나                   <- 실습 4
+mTLS(RSA)     - 접속하는 게 누구인가                 <- 실습 3
+TLS 암호화     - 엿듣기 차단                        <- Phase 2
+```
