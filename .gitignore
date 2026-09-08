@@ -33,3 +33,12 @@ Thumbs.db
 # 자바 빌드 결과물. .java 를 컴파일한 .class 와 jar 가 쌓이는 곳이다.
 # 소스만 있으면 언제든 다시 만들어지므로 커밋하지 않는다. (파이썬의 __pycache__ 와 같은 자리)
 target/
+
+# ── 실습 7 (SFTP 배치) ──
+# SFTP 로 받아온 파일. 배치 중간 산출물이라 커밋하지 않는다.
+phase4-interop/download/
+# SSH 호스트키·개인키. .key 와 같은 급으로 취급한다.
+ssh_host_*
+*_ed25519
+*_rsa
+known_hosts

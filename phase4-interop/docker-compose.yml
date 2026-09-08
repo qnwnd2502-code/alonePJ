@@ -29,6 +29,12 @@ services:
       PARTNER_DB_URL: jdbc:postgresql://partner-db:5432/${PARTNER_DB_NAME}
       PARTNER_DB_USER: ${PARTNER_DB_USER}
       PARTNER_DB_PASSWORD: ${PARTNER_DB_PASSWORD}
+      # ★ 실습 7. 상대 기관 SFTP 접속정보. 주소가 '호스트:포트' 라는 것에 주의.
+      #   HTTP 연계와 달리 URL 이 아니다. 방화벽 신청서에도 이 형태로 적는다.
+      SFTP_HOST: partner-sftp
+      SFTP_PORT: "22"
+      SFTP_USER: ${SFTP_USER}
+      SFTP_PASSWORD: ${SFTP_PASSWORD}
     # depends_on 은 목록형(- partner)과 조건형을 섞어 쓸 수 없다. 전부 조건형으로 통일한다.
     depends_on:
       partner:
@@ -37,6 +43,8 @@ services:
         condition: service_started
       partner-db:
         condition: service_healthy
+      partner-sftp:
+        condition: service_started
 
   # ============ 상대 기관 서버 (연계를 '당하는' 쪽) ============
   # 회사에서는 이 컨테이너가 없다. 상대 기관 전산실에 있다.
@@ -53,6 +61,11 @@ services:
       # ★ HS256 서명용. 우리에게도 이 값을 줘야 검증이 된다 = HS256 의 근본 문제.
       #   (RS256 은 공개키만 주면 되므로 이런 공유가 필요 없다)
       JWT_HS_SECRET: ${JWT_HS_SECRET}
+    volumes:
+      # ★ 상대 기관의 '야간 배치'가 파일을 떨구는 자리.
+      #   아래 partner-sftp 가 같은 볼륨을 자기 홈으로 물고 있다.
+      #   즉 파일을 만드는 놈과 내보내는 놈이 다르다 — 실무도 대개 이 구조다.
+      - sftpdata:/data/outbox
 
   # ============ 상대 기관의 웹서버 (TLS 종료 지점) ============
   # 상대 기관 전산실 맨 앞에 서 있는 nginx 다. 우리 것이 아니다.
@@ -91,6 +104,22 @@ services:
       timeout: 3s
       retries: 20
 
+  # ============ 상대 기관의 SFTP 서버 ============
+  # 연계 3형태(API/파일/DB) 중 '파일' 이다. 공공 연계의 절반 이상이 아직 여기 있다.
+  # 밤에 상대가 파일을 떨궈두면, 아침에 우리가 가져가서 우리 DB 에 적재한다.
+  partner-sftp:
+    image: atmoz/sftp:alpine
+    # 형식 = 계정:비밀번호:UID:GID  (공문으로 받는 그 계정이다)
+    # ※ 아래 볼륨 경로의 'eaiuser' 는 .env 의 SFTP_USER 와 같아야 한다.
+    command: ${SFTP_USER}:${SFTP_PASSWORD}:1001:1001
+    # ★ ports 를 두지 않는다. 22 번을 호스트에 여는 건 그 자체로 사고다.
+    #   우리는 컨테이너 네트워크 안에서 partner-sftp:22 로만 붙는다.
+    #   (안을 들여다볼 땐 docker compose exec 를 쓴다)
+    volumes:
+      - sftpdata:/home/eaiuser/outbox
+
 volumes:
   m2:
   partnerdata:
+  # 상대 기관 배치가 쓰고, 상대 기관 SFTP 가 내보내는 같은 디스크
+  sftpdata:

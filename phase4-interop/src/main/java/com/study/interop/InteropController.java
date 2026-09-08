@@ -221,6 +221,10 @@ public class InteropController {
     @Resource
     private ResilientClient resilientClient;
 
+    // 실습 7. 파일 배치(SFTP)
+    @Resource
+    private SftpBatchClient sftpBatchClient;
+
     // --- (1) 타임아웃 ---
 
     // 상대가 sec 초 걸린다. 우리 readTimeout 은 5초.
@@ -276,5 +280,66 @@ public class InteropController {
     @GetMapping("/reset")
     public Map<String, Object> reset() {
         return resilientClient.resetAll();
+    }
+
+    // ============================================================
+    //  실습 7 : 파일 배치 (SFTP)
+    //  ★ 여기 창구들은 원래 사람이 누르는 게 아니다.
+    //    실무에서는 스케줄러가 새벽 6시에 run() 을 부른다.
+    //    학습용으로 '손으로 누를 수 있게' 화면에 꺼내둔 것뿐이다.
+    // ============================================================
+
+    // 0. 상대 기관 야간 배치를 지금 돌린다 (상대가 파일을 떨군다)
+    @GetMapping("/sftp/seed")
+    public Map<String, Object> sftpSeed() {
+        return sftpBatchClient.seed();
+    }
+
+    // 상대 서버 디스크를 그냥 들여다본다 (현실에선 못 본다)
+    @GetMapping("/sftp/outbox")
+    public Map<String, Object> sftpOutbox() {
+        return sftpBatchClient.outbox();
+    }
+
+    // 1. SFTP 로 접속해서 목록만 본다
+    @GetMapping("/sftp/list")
+    public Map<String, Object> sftpList() {
+        return sftpBatchClient.list();
+    }
+
+    // 2. 받아온다. safe=off 면 .done 없는 파일까지 가져간다(사고 재현)
+    @GetMapping("/sftp/fetch")
+    public Map<String, Object> sftpFetch(@RequestParam(defaultValue = "on") String safe) {
+        return sftpBatchClient.fetch(!"off".equalsIgnoreCase(safe));
+    }
+
+    // 3. 고정길이 전문을 뜯는다. charset 과 mode 를 바꿔가며 본다
+    //    mode=byte  바이트로 자른다(맞음) / mode=char  substring 으로 자른다(틀림)
+    @GetMapping("/sftp/parse")
+    public Map<String, Object> sftpParse(
+            @RequestParam(defaultValue = "SUCH-20260908-0001.dat") String file,
+            @RequestParam(defaultValue = "euc-kr") String charset,
+            @RequestParam(defaultValue = "byte") String mode) {
+        return sftpBatchClient.parse(file, charset, "byte".equalsIgnoreCase(mode));
+    }
+
+    // 4. 배치 한 판. history=off 면 처리이력을 안 봐서 중복 적재가 난다
+    @GetMapping("/sftp/run")
+    public Map<String, Object> sftpRun(@RequestParam(defaultValue = "on") String safe,
+                                       @RequestParam(defaultValue = "on") String history) {
+        return sftpBatchClient.run(!"off".equalsIgnoreCase(safe),
+                                   !"off".equalsIgnoreCase(history));
+    }
+
+    // 우리 쪽 적재 결과
+    @GetMapping("/sftp/ledger")
+    public Map<String, Object> sftpLedger() {
+        return sftpBatchClient.ledger();
+    }
+
+    // 우리 쪽 원장만 비운다
+    @GetMapping("/sftp/reset")
+    public Map<String, Object> sftpReset() {
+        return sftpBatchClient.resetLedger();
     }
 }
