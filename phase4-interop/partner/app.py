@@ -568,3 +568,118 @@ def payment_reset():
     PAYMENTS.clear()
     IDEM_STORE.clear()
     return {"결과": "원장 초기화됨"}
+
+
+# =========================================================================
+#  실습 7 : 상대 기관의 '야간 배치'
+#
+#  현실의 순서를 그대로 흉내낸다.
+#    23:00  상대 기관 배치가 돌면서 파일을 만든다  <- 여기 (이 코드)
+#    23:0x  파일을 SFTP 홈에 떨군다
+#    06:00  우리 배치가 SFTP 로 가져가서 우리 DB 에 넣는다  <- 자바 쪽
+#
+#  ★ 파일을 '만드는 놈' 과 '내보내는 놈' 이 다르다는 것이 핵심이다.
+#    그래서 우리가 가져가는 순간 상대가 아직 쓰는 중일 수 있다.
+# =========================================================================
+
+OUTBOX = "/data/outbox"
+
+# 전문 레이아웃 (연계규격서.md 6장과 같은 표다)
+#   위치  길이  항목
+#    1     8    기관코드
+#    9    20    성명        <- ★ 한글. EUC-KR 에서 1글자 = 2바이트
+#   29     8    생년월일
+#   37    10    금액        (우측정렬 0채움)
+#   47     1    구분        (1신규 2변경 3취소)
+#   합계 47바이트 + CRLF
+JEONMUN_ENC = "euc-kr"
+
+
+def _fw(value, size, right=False, fill=b" "):
+    """고정길이 항목 하나를 만든다. ★ 길이는 '글자수'가 아니라 '바이트수' 다."""
+    b = str(value).encode(JEONMUN_ENC)
+    if len(b) > size:
+        return b[:size]
+    pad = fill * (size - len(b))
+    return (pad + b) if right else (b + pad)
+
+
+def _record(기관코드, 성명, 생년월일, 금액, 구분):
+    return (_fw(기관코드, 8) + _fw(성명, 20) + _fw(생년월일, 8)
+            + _fw(금액, 10, right=True, fill=b"0") + _fw(구분, 1))
+
+
+@app.post("/openapi/batch/seed")
+async def batch_seed():
+    """상대 기관 야간 배치를 '지금' 돌린다. outbox 를 비우고 새로 만든다."""
+    os.makedirs(OUTBOX, exist_ok=True)
+    os.makedirs(os.path.join(OUTBOX, "archive"), exist_ok=True)
+    # ★ 학습용으로 권한을 활짝 연다. 파일을 만드는 계정(root)과
+    #   가져가는 계정(eaiuser, uid 1001)이 달라서다.
+    #   실무에서 이 문제를 푸는 방법이 '권한 설계' 이고, 다음 시간 주제다.
+    os.chmod(OUTBOX, 0o777)
+    os.chmod(os.path.join(OUTBOX, "archive"), 0o777)
+
+    for f in os.listdir(OUTBOX):
+        full = os.path.join(OUTBOX, f)
+        if os.path.isfile(full):
+            os.remove(full)
+    arc = os.path.join(OUTBOX, "archive")
+    for f in os.listdir(arc):
+        os.remove(os.path.join(arc, f))
+
+    made = []
+
+    def write(name, body: bytes, done=True):
+        full = os.path.join(OUTBOX, name)
+        with open(full, "wb") as fp:
+            fp.write(body)
+        os.chmod(full, 0o666)
+        if done:
+            # ★ 완료 표시 파일. "이 파일은 다 썼다" 는 신호다.
+            #   내용은 없어도 된다. 존재 자체가 신호다.
+            marker = full + ".done"
+            open(marker, "wb").close()
+            os.chmod(marker, 0o666)
+        made.append(name + ("" if done else "   <- .done 없음(쓰는 중)"))
+
+    CRLF = b"\r\n"   # ★ 공공 전문은 대부분 CRLF 다. LF 로 만들면 길이가 1 어긋난다.
+
+    f1 = (_record("B1234567", "김유신", "19850312", 1250000, "1") + CRLF
+          + _record("B1234567", "홍길동", "19790401", 830000, "1") + CRLF
+          + _record("B1234567", "박문수", "19920925", 2000000, "2") + CRLF)
+    write("SUCH-20260908-0001.dat", f1)
+
+    f2 = (_record("B1234567", "신사임당", "19660210", 450000, "1") + CRLF
+          + _record("B1234567", "이순신", "19880717", 1700000, "3") + CRLF)
+    write("SUCH-20260908-0002.dat", f2)
+
+    # ★ 3번 파일은 '쓰는 중' 이다. 마지막 줄이 잘려 있고 .done 도 없다.
+    #   상대 배치가 아직 안 끝난 상태를 그대로 재현한 것.
+    f3 = (_record("B1234567", "장영실", "19750830", 990000, "1") + CRLF
+          + _record("B1234567", "정약용", "19810", 0, "")[:22])
+    write("SUCH-20260908-0003.dat", f3, done=False)
+
+    return {
+        "결과": "상대 기관 야간 배치 완료",
+        "떨군위치": OUTBOX,
+        "파일": made,
+        "인코딩": JEONMUN_ENC,
+        "레코드길이": "47바이트 + CRLF",
+    }
+
+
+@app.get("/openapi/batch/outbox")
+async def batch_outbox():
+    """상대 서버 디스크를 그냥 들여다본다. (현실에선 못 본다. 학습용 창구)"""
+    if not os.path.isdir(OUTBOX):
+        return {"파일": [], "안내": "먼저 /openapi/batch/seed 를 돌릴 것"}
+    out = []
+    for f in sorted(os.listdir(OUTBOX)):
+        full = os.path.join(OUTBOX, f)
+        out.append({"이름": f,
+                    "종류": "디렉터리" if os.path.isdir(full) else "파일",
+                    "크기": None if os.path.isdir(full) else os.path.getsize(full)})
+    arc = os.path.join(OUTBOX, "archive")
+    return {"outbox": out,
+            "archive": sorted(os.listdir(arc)) if os.path.isdir(arc) else []}

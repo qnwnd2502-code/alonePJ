@@ -51,6 +51,22 @@
             <artifactId>httpclient5</artifactId>
         </dependency>
 
+
+        <!-- ============================================================
+             SFTP 클라이언트 (실습 7).
+             ★ 주의해서 볼 것 : groupId 가 com.jcraft 가 아니라 com.github.mwiede 다.
+               원조 com.jcraft:jsch 는 0.1.55(2018) 에서 멈췄고,
+               요즘 OpenSSH 서버에 붙으면 이런 오류를 낸다 :
+                   com.jcraft.jsch.JSchException: Algorithm negotiation fail
+               서버가 옛 알고리즘(ssh-rsa 등)을 더는 안 받아주기 때문이다.
+               오래된 공공 소스에서 이 오류를 만나면 원인은 방화벽도 계정도 아니고
+               '라이브러리가 늙은 것' 이다. 유지보수판이 아래 mwiede 포크다.
+             ============================================================ -->
+        <dependency>
+            <groupId>com.github.mwiede</groupId>
+            <artifactId>jsch</artifactId>
+            <version>0.2.17</version>
+        </dependency>
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>

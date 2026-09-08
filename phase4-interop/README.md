@@ -768,3 +768,250 @@ HMAC          - 전문이 안 바뀌었나                   <- 실습 4
 mTLS(RSA)     - 접속하는 게 누구인가                 <- 실습 3
 TLS 암호화     - 엿듣기 차단                        <- Phase 2
 ```
+
+---
+
+## 실습 7 — 파일 배치 (SFTP)
+
+연계 3형태 중 **파일**이다. API 를 여섯 번 배웠지만, 공공 연계의 절반 이상은 아직 여기 있다.
+
+```
+왜 아직도 파일인가
+  망분리    업무망과 인터넷망이 끊겨 있어 실시간 호출 자체가 불가능한 곳이 많다
+  대량      수십만 건을 API 로 한 건씩 부르면 밤이 새도 안 끝난다
+  오래됨    20년 전에 만든 연계는 그때 방식 그대로 돌고 있다
+```
+
+### 누가 누구인가
+
+```
+partner        상대 기관 배치.  23:00 에 파일을 만들어 /data/outbox 에 떨군다
+   │  (같은 디스크 = sftpdata 볼륨)
+partner-sftp   상대 기관 SFTP 서버.  같은 디스크를 /home/eaiuser/outbox 로 물고 있다
+   │  22/TCP
+boot           우리.  06:00 에 가져가서 뜯고 우리 원장에 넣는다
+```
+
+★ 파일을 **만드는 놈**과 **내보내는 놈**이 다르다. 그래서 우리가 가져가는 순간
+상대가 아직 쓰는 중일 수 있다. 오늘의 함정 1이 여기서 나온다.
+
+### 파일 지도
+
+```
+docker-compose.yml
+  partner-sftp:                     ★ 오늘 추가된 상대 서버 (atmoz/sftp)
+  volumes: sftpdata                 만드는 쪽과 내보내는 쪽이 공유하는 디스크
+
+partner/app.py
+  POST /openapi/batch/seed          상대 야간 배치를 '지금' 돌린다
+  GET  /openapi/batch/outbox        상대 디스크를 들여다본다 (현실엔 없는 창구)
+
+src/main/java/com/study/interop/SftpBatchClient.java     ★ 오늘의 전부
+src/main/resources/application.properties   sftp.host / port / user / password
+연계규격서.md  6장                  ★ 전문 레이아웃은 규격서가 정한다
+```
+
+### 값의 흐름 — 비밀번호는 어디서 오나
+
+```
+.env                     SFTP_PASSWORD=...
+  -> docker-compose.yml  boot.environment.SFTP_PASSWORD
+  -> application.properties  sftp.password=${SFTP_PASSWORD:}
+  -> SftpBatchClient  @Value("${sftp.password}")
+  -> session.setPassword()
+```
+
+소스 어디에도 비밀번호가 없다. `.env` 는 `.gitignore` 에 있다.
+
+### 명령
+
+```
+0) 상대가 파일을 떨군다
+   http://localhost:9600/interop/sftp/seed
+   http://localhost:9600/interop/sftp/outbox
+
+1) SFTP 로 목록만 본다
+   http://localhost:9600/interop/sftp/list
+```
+
+### 1막 — 함정 ① 덜 쓰인 파일
+
+```
+http://localhost:9600/interop/sftp/fetch?safe=on     -> 0001, 0002 만 받음
+http://localhost:9600/interop/sftp/fetch?safe=off    -> 0003 까지 받음
+```
+
+`0003` 은 `.done` 이 없다. 상대 배치가 아직 쓰는 중이다.
+
+★ 이 사고는 **다운로드가 성공한다.** 파일도 멀쩡히 존재한다.
+  깨진 건 다음날 민원이 들어와서야 안다. 그래서 무섭다.
+
+해결은 프로토콜이 아니라 **약속**으로 한다.
+
+```
+(a) 완료표시 파일     data.dat 를 다 쓴 뒤 data.dat.done 을 만든다   <- 이 실습
+(b) 임시이름 후 rename  data.tmp 로 쓰고 다 쓰면 data.dat 로 이름만 바꾼다
+                      rename 은 같은 디스크 안에서 순간이라 중간 상태가 없다
+```
+
+★ 규격서에 이 약속이 없으면 그 연계는 언젠가 반드시 깨진 파일을 읽는다.
+  설계 회의에서 물어야 할 항목이다. (실습 6 의 "멱등성 키 항목이 규격서에 있나" 와 같은 자리)
+
+### 2막 — 함정 ② 인코딩
+
+```
+http://localhost:9600/interop/sftp/parse?file=SUCH-20260908-0001.dat&charset=euc-kr
+http://localhost:9600/interop/sftp/parse?file=SUCH-20260908-0001.dat&charset=utf-8
+```
+
+```
+euc-kr  성명 : 김유신
+utf-8   성명 : ������
+```
+
+공공 전문은 아직도 EUC-KR(=CP949) 이 흔하다. 규격서 6.4 에 적혀 있고,
+안 읽으면 한글이 깨진다. 여기까지는 눈에 보이니 차라리 낫다. 진짜는 다음이다.
+
+### 3막 — 함정 ③ 고정길이는 '바이트'로 잘라야 한다
+
+```
+http://localhost:9600/interop/sftp/parse?file=SUCH-20260908-0001.dat&mode=byte
+http://localhost:9600/interop/sftp/parse?file=SUCH-20260908-0001.dat&mode=char
+```
+
+```
+mode=byte   기관코드 B1234567 | 성명 김유신              | 생년월일 19850312 | 금액 0001250000 | 구분 1
+mode=char   기관코드 B1234567 | 성명 김유신          198 | 생년월일 50312000 | 금액 12500001   | 구분 (범위밖)
+```
+
+★ 규격서의 "성명 20" 은 **20글자가 아니라 20바이트**다.
+  EUC-KR 에서 한글 1글자 = 2바이트이므로 `"김유신"` 은 6바이트 = 3글자.
+  바이트로 채운 자리를 글자로 세면 그 뒤 항목이 **전부 밀린다.**
+
+```java
+// 맞음 — 바이트 위치로 자르고 '그 다음에' 문자로 바꾼다
+new String(line, 8, 20, cs)
+
+// 틀림 — 문자로 바꾼 뒤 자른다. 회사 소스에서 제일 흔히 보이는 모양
+new String(line, cs).substring(8, 28)
+```
+
+★ 무서운 점: **금액이 12500001 로 나와도 프로그램은 안 죽는다.**
+  숫자로 보이고, 파싱도 되고, DB 에도 들어간다. 사람이 안 보면 아무도 모른다.
+
+★ 두 번째 방어선 = **레코드 길이 검증**.
+
+```
+http://localhost:9600/interop/sftp/parse?file=SUCH-20260908-0003.dat
+-> 불량레코드 : 레코드 길이 22바이트 (규격 47바이트) -> 잘린 파일이다
+```
+
+고정길이 전문은 길이가 정해져 있으므로 **길이만 재도 잘린 파일을 잡는다.**
+`.done` 마커를 못 쓰는 상황에서도 이건 할 수 있다.
+
+### 4막 — 함정 ④ 중복 적재 (실습 6 의 파일판)
+
+배치 → 상대가 같은 파일 재전송 → 배치. 두 번 돌린다.
+
+```
+http://localhost:9600/interop/sftp/reset
+http://localhost:9600/interop/sftp/seed
+http://localhost:9600/interop/sftp/run?history=off
+http://localhost:9600/interop/sftp/seed          <- 상대가 같은 파일을 다시 올렸다
+http://localhost:9600/interop/sftp/run?history=off
+http://localhost:9600/interop/sftp/ledger        -> 적재건수 10   ★ 수당이 두 번 나갔다
+```
+
+```
+같은 순서로 history=on 이면                       -> 적재건수 5
+배치로그 : SUCH-20260908-0001.dat : 건너뜀 (이미 처리한 파일)
+```
+
+★ 실습 6 과 완전히 같은 그림이다. 이름만 바뀐다.
+
+| | 무엇을 보고 판단하나 | 어디에 저장하나 |
+|---|---|---|
+| HTTP 연계 | Idempotency-Key | Redis / DB |
+| 파일 배치 | 처리한 파일명(+크기, 해시) | 배치이력 테이블 |
+
+★ 그리고 처리한 파일은 **지우지 않고 옮긴다.**
+
+```
+/outbox/SUCH-20260908-0001.dat  ->  /outbox/archive/SUCH-20260908-0001.dat
+```
+
+- 상대가 "그 날 파일 다시 주세요" 하는 날이 반드시 온다
+- archive 로 옮기면 목록에서 사라져서 다음 배치가 다시 집지 않는다
+- ★ **이동에 실패하면 다음 배치가 같은 파일을 또 집는다.** 조용한 사고라 로그가 필수다
+
+### 보안 — 오늘의 '끄면 안 되는 것'
+
+```java
+cfg.put("StrictHostKeyChecking", "no");   // ★ 학습용. 운영에서 이러면 안 된다
+```
+
+`no` 로 두면 상대 서버가 바뀌어도 그냥 붙는다 = **중간자 공격을 못 잡는다.**
+TLS 에서 `curl -k` / 인증서 검증 끄기 와 정확히 같은 죄다.
+
+```
+정답 :  ssh-keyscan -p 22 상대호스트 >> known_hosts
+        jsch.setKnownHosts("/app/certs/known_hosts");
+        StrictHostKeyChecking = yes
+```
+
+실습 코드는 대신 접속할 때마다 **서버 지문(fingerprint)** 을 찍는다.
+운영에서는 그 지문을 상대 기관 담당자와 **전화로 대조**한 뒤 고정한다.
+
+```
+비밀번호 vs 키 인증
+  비밀번호  공문으로 받는다. 주기적 변경 요구가 오면 배치가 그날 밤 죽는다
+  키 인증   우리 공개키를 상대 authorized_keys 에 넣는다. 만료가 없어 운영이 편하다
+           ★ 개인키는 절대 상대에게 보내지 않는다 (.crt 는 보내도 .key 는 안 보낸다 와 같은 규칙)
+```
+
+### 라이브러리 함정 — `Algorithm negotiation fail`
+
+```xml
+<groupId>com.github.mwiede</groupId>   <!-- 유지보수판 -->
+<artifactId>jsch</artifactId>
+```
+
+원조 `com.jcraft:jsch` 는 **0.1.55(2018)** 에서 멈췄다.
+요즘 OpenSSH 서버는 옛 알고리즘(ssh-rsa 등)을 더는 안 받아준다.
+
+```
+com.jcraft.jsch.JSchException: Algorithm negotiation fail
+```
+
+오래된 공공 소스에서 이 오류를 만나면 원인은 방화벽도 계정도 아니고
+**라이브러리가 늙은 것**이다. `pom.xml` 의 jsch 버전부터 볼 것.
+
+### 회사 소스에서 볼 5곳
+
+```java
+new JSch(); ... session.connect();          // ① 타임아웃 인자가 비어 있나 (배치가 밤새 매달린다)
+StrictHostKeyChecking = "no"                // ② 호스트키 검증을 껐나
+new String(bytes).substring(a, b)           // ③ 고정길이를 글자로 자르나
+new String(bytes)                           // ④ 문자셋을 안 줬나 (서버 기본값에 끌려간다)
+ls() 결과를 그대로 for 로 돌리나            // ⑤ .done 확인 없이 다 집어가나
+```
+
+### 오늘의 정리
+
+```
+① 덜 쓰인 파일   .done 마커 / .tmp 후 rename  — 규격서에 없으면 물어봐야 한다
+② 인코딩        EUC-KR. new String 에 문자셋을 반드시 준다
+③ 바이트 vs 글자  고정길이는 byte 로 자른다. 안 죽고 값만 밀려서 무섭다
+④ 중복 적재      처리이력 = 배치판 멱등성. 처리 후 archive 로 '이동'
+```
+
+### Phase 4 누적 층
+
+```
+파일 배치      - 실시간이 아닐 때 어떻게 주고받나   <- 실습 7
+장애 3종       - 상대가 정상이 아닐 때 버티나       <- 실습 6
+토큰(JWT)      - 이 요청이 허용된 업무인가         <- 실습 5
+HMAC          - 전문이 안 바뀌었나                <- 실습 4
+mTLS(RSA)     - 접속하는 게 누구인가              <- 실습 3
+TLS 암호화     - 엿듣기 차단                      <- Phase 2
+```
