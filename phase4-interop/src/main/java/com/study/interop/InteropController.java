@@ -225,6 +225,10 @@ public class InteropController {
     @Resource
     private SftpBatchClient sftpBatchClient;
 
+    // 실습 8. 권한 승계(문서 단위 보안)
+    @Resource
+    private DocSearchClient docSearchClient;
+
     // --- (1) 타임아웃 ---
 
     // 상대가 sec 초 걸린다. 우리 readTimeout 은 5초.
@@ -341,5 +345,61 @@ public class InteropController {
     @GetMapping("/sftp/reset")
     public Map<String, Object> sftpReset() {
         return sftpBatchClient.resetLedger();
+    }
+
+    // ============================================================
+    //  실습 8 : 권한 승계 (Document-level Security)
+    // ============================================================
+
+    // 0. 상대 문서저장소를 초깃값으로
+    @GetMapping("/acl/seed")
+    public Map<String, Object> aclSeed() {
+        return docSearchClient.seed();
+    }
+
+    // 이 사람이 누구이고 어느 그룹에 속하나 (인사시스템에 묻는다)
+    @GetMapping("/acl/whoami")
+    public Map<String, Object> aclWhoami(@RequestParam(defaultValue = "hong") String user) {
+        return docSearchClient.whoami(user);
+    }
+
+    // 1. 수집·색인. acl=off 면 본문만 가져온다(권한을 알 수 없게 된다)
+    @GetMapping("/acl/index")
+    public Map<String, Object> aclIndex(@RequestParam(defaultValue = "on") String acl) {
+        return docSearchClient.index(!"off".equalsIgnoreCase(acl));
+    }
+
+    // 색인에 무엇이 들어있는지 그대로 본다
+    @GetMapping("/acl/index-dump")
+    public Map<String, Object> aclIndexDump() {
+        return docSearchClient.indexDump();
+    }
+
+    // 2. 검색. mode = none / allow-only / early / late,  nested = on / off
+    @GetMapping("/acl/search")
+    public Map<String, Object> aclSearch(@RequestParam(defaultValue = "hong") String user,
+                                         @RequestParam(defaultValue = "인사") String q,
+                                         @RequestParam(defaultValue = "early") String mode,
+                                         @RequestParam(defaultValue = "on") String nested) {
+        return docSearchClient.search(user, q, mode.toLowerCase(),
+                                      !"off".equalsIgnoreCase(nested));
+    }
+
+    // 3. 관리자가 원본에서 권한을 회수한다 (색인은 안 바뀐다)
+    @GetMapping("/acl/revoke")
+    public Map<String, Object> aclRevoke(@RequestParam(defaultValue = "DOC-002") String doc,
+                                         @RequestParam(defaultValue = "인사팀") String group) {
+        return docSearchClient.revoke(doc, group);
+    }
+
+    // late binding 이 원본을 몇 번 두들겼나
+    @GetMapping("/acl/calls")
+    public Map<String, Object> aclCalls() {
+        return docSearchClient.aclCalls();
+    }
+
+    @GetMapping("/acl/calls/reset")
+    public Map<String, Object> aclCallsReset() {
+        return docSearchClient.aclCallsReset();
     }
 }
