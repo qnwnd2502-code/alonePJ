@@ -683,3 +683,166 @@ async def batch_outbox():
     arc = os.path.join(OUTBOX, "archive")
     return {"outbox": out,
             "archive": sorted(os.listdir(arc)) if os.path.isdir(arc) else []}
+
+
+# =========================================================================
+#  실습 8 : 기관 내부 문서저장소 + 인사(디렉터리) 시스템
+#
+#  RAG 를 기관에 설치하면 이 둘을 반드시 만나게 된다.
+#    - 문서저장소 : 파일 + '누가 볼 수 있는지'(ACL)
+#    - 인사시스템 : 사람 + '어느 그룹에 속하는지'
+#
+#  ★ 이 둘은 원래 서로 모르는 남남이다. 붙이는 게 우리 일이고,
+#    잘못 붙이면 A부서 사람이 B부서 급여파일을 검색으로 본다.
+# =========================================================================
+
+# 그룹 나무. 팀은 본부 아래에 있다.
+#   ★ 이걸 '중첩 그룹(nested group)' 이라 부른다. AD/LDAP 에서는 기본이다.
+GROUP_PARENT = {
+    "인사팀": "경영지원본부",
+    "총무팀": "경영지원본부",
+    "복지팀": "복지본부",
+    "감사팀": "감사관실",
+}
+
+# 사람 -> 직접 소속 그룹. (인사시스템이 관리한다. 우리 것이 아니다)
+USER_GROUPS = {
+    "hong": {"이름": "홍길동", "그룹": ["인사팀"]},
+    "kim":  {"이름": "김철수", "그룹": ["복지팀"]},
+    "lee":  {"이름": "이영희", "그룹": ["감사팀"]},
+    "park": {"이름": "박민수", "그룹": ["복지팀", "인사팀"]},   # 겸직
+}
+
+# 문서저장소. allow 에 있으면 허용, deny 에 있으면 거부.
+#   ★ deny 가 allow 를 이긴다. 윈도우 파일서버도, AD 도, S3 도 전부 이 규칙이다.
+DOCS_MASTER = [
+    {"id": "DOC-001", "제목": "2026년_인사발령.hwp",
+     "본문": "인사발령 명단 및 전보 대상자 정리",
+     "allow": ["인사팀"], "deny": []},
+    {"id": "DOC-002", "제목": "급여지급내역_9월.xlsx",
+     "본문": "9월 급여 지급 내역과 인사 수당 산출 내역",
+     "allow": ["인사팀"], "deny": []},
+    {"id": "DOC-003", "제목": "복지대상자명단.csv",
+     "본문": "복지 급여 대상자 명단",
+     "allow": ["복지팀"], "deny": []},
+    {"id": "DOC-004", "제목": "기관운영계획.pdf",
+     "본문": "기관 운영 계획과 인사 운영 방향",
+     "allow": ["전직원"], "deny": []},
+    {"id": "DOC-005", "제목": "감사결과보고서.hwp",
+     "본문": "정기 감사 결과 및 인사 관련 지적사항",
+     "allow": ["감사관실"], "deny": []},
+    # ★ 함정용. allow 는 본부(경영지원본부)라서 인사팀도 상속으로 걸리는데,
+    #   deny 에 인사팀이 있다. 허용만 보고 거부를 안 보면 유출된다.
+    {"id": "DOC-006", "제목": "징계위원회_회의록.hwp",
+     "본문": "인사 관련 징계위원회 회의록",
+     "allow": ["경영지원본부"], "deny": ["인사팀"]},
+    # ★ 함정용 2. allow 가 '본부' 다. 인사팀 사람은 상속으로 볼 수 있어야 한다.
+    #   중첩 그룹을 안 펼치면 정당한 사람이 자기 문서를 못 본다 = 업무 마비.
+    {"id": "DOC-007", "제목": "경영지원본부_예산집행.xlsx",
+     "본문": "경영지원본부 예산 집행 및 인사 운영비 내역",
+     "allow": ["경영지원본부"], "deny": []},
+]
+
+DOCS = []
+# 원본 시스템에 '권한을 물어본' 횟수. late binding 의 대가를 재는 계기판이다.
+ACL_CALLS = {"count": 0}
+
+
+def _expand(groups):
+    """직접 소속 그룹에서 위로 타고 올라가 '실효 그룹' 을 만든다.
+    ★ 이걸 안 펼치면 본부 권한으로 걸린 문서를 팀원이 못 본다.
+      유출의 반대편 사고 = 업무 마비."""
+    out = set()
+    for g in groups:
+        cur = g
+        while cur:
+            out.add(cur)
+            cur = GROUP_PARENT.get(cur)
+    out.add("전직원")
+    return sorted(out)
+
+
+@app.post("/openapi/docs/seed")
+async def docs_seed():
+    """문서저장소를 초깃값으로 되돌린다."""
+    DOCS.clear()
+    for d in DOCS_MASTER:
+        DOCS.append({k: (list(v) if isinstance(v, list) else v) for k, v in d.items()})
+    ACL_CALLS["count"] = 0
+    return {"결과": "문서저장소 초기화", "문서수": len(DOCS)}
+
+
+@app.get("/openapi/directory/user")
+async def directory_user(id: str = Query(...)):
+    """인사시스템에 '이 사람 누구냐' 를 묻는다."""
+    u = USER_GROUPS.get(id)
+    if not u:
+        raise HTTPException(status_code=404, detail="그런 사용자 없음")
+    return {"계정": id, "이름": u["이름"],
+            "직접소속": u["그룹"],
+            "실효그룹": _expand(u["그룹"])}
+
+
+@app.get("/openapi/docs/list")
+async def docs_list(with_acl: bool = Query(True)):
+    """문서를 통째로 내준다. 수집기(크롤러)가 부르는 창구다.
+
+    ★ with_acl=False 는 '본문만 주는' 창구다.
+      실제로 이런 연계가 흔하다. 권한은 원본 시스템에만 있고
+      수집 API 는 본문만 준다. 그러면 우리는 권한을 알 수가 없다."""
+    if not DOCS:
+        return {"문서": [], "안내": "먼저 /openapi/docs/seed 를 부를 것"}
+    out = []
+    for d in DOCS:
+        row = {"id": d["id"], "제목": d["제목"], "본문": d["본문"]}
+        if with_acl:
+            row["allow"] = d["allow"]
+            row["deny"] = d["deny"]
+        out.append(row)
+    return {"문서": out, "권한포함": with_acl}
+
+
+@app.get("/openapi/docs/can-read")
+async def docs_can_read(doc: str = Query(...), user: str = Query(...)):
+    """★ late binding 용 창구. '지금 이 사람이 이 문서를 볼 수 있나' 를
+    원본 시스템에 직접 묻는다. 항상 최신이지만, 검색 결과 건수만큼 호출된다."""
+    ACL_CALLS["count"] += 1
+    u = USER_GROUPS.get(user)
+    d = next((x for x in DOCS if x["id"] == doc), None)
+    if not u or not d:
+        raise HTTPException(status_code=404, detail="사용자 또는 문서 없음")
+    eff = set(_expand(u["그룹"]))
+    if eff & set(d["deny"]):
+        return {"허용": False, "사유": "deny 에 걸림 (거부가 허용을 이긴다)"}
+    if eff & set(d["allow"]):
+        return {"허용": True, "사유": "allow 에 걸림"}
+    return {"허용": False, "사유": "allow 에 없음"}
+
+
+@app.post("/openapi/docs/revoke")
+async def docs_revoke(doc: str = Query(...), group: str = Query(...)):
+    """관리자가 문서 권한을 회수한다. (보안사고 후 조치, 부서 이관 등)
+
+    ★ 여기서 바뀌는 건 '원본' 뿐이다. 우리가 색인해둔 사본은 그대로다.
+      early binding 의 약점이 정확히 이 순간에 드러난다."""
+    d = next((x for x in DOCS if x["id"] == doc), None)
+    if not d:
+        raise HTTPException(status_code=404, detail="그런 문서 없음")
+    if group in d["allow"]:
+        d["allow"].remove(group)
+    if group not in d["deny"]:
+        d["deny"].append(group)
+    return {"결과": "권한 회수", "문서": doc, "회수한그룹": group,
+            "지금allow": d["allow"], "지금deny": d["deny"],
+            "안내": "원본만 바뀌었다. 우리 색인은 아직 옛날 권한을 들고 있다"}
+
+
+@app.get("/openapi/docs/acl-calls")
+async def docs_acl_calls():
+    return {"원본에권한물어본횟수": ACL_CALLS["count"]}
+
+
+@app.post("/openapi/docs/acl-calls/reset")
+async def docs_acl_calls_reset():
+    ACL_CALLS["count"] = 0
+    return {"결과": "계기판 초기화"}
