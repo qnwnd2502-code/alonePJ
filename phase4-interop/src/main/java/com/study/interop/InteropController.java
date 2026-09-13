@@ -236,6 +236,9 @@ public class InteropController {
     @Resource
     private FileDownloadClient fileDownloadClient;
 
+    @Resource
+    private ErrorHandlingClient errorHandlingClient;
+
     // --- (1) 타임아웃 ---
 
     // 상대가 sec 초 걸린다. 우리 readTimeout 은 5초.
@@ -436,5 +439,38 @@ public class InteropController {
     @GetMapping("/sec/download-safe")
     public Map<String, Object> secDownloadSafe(@RequestParam(defaultValue = "공지사항.txt") String file) {
         return fileDownloadClient.downloadSafe(file);
+    }
+
+    // ---- Phase 4.5 실습 2 : 오류 처리 ----
+
+    // (1) 정보 노출 - 취약: 예외 내용을 그대로 보여준다
+    @GetMapping("/err/leak")
+    public Map<String, Object> errLeak() {
+        return errorHandlingClient.leak();
+    }
+
+    // (1) 정보 노출 - 안전: 추적번호만 주고 로그에 남긴다
+    @GetMapping("/err/safe")
+    public Map<String, Object> errSafe() {
+        return errorHandlingClient.safe();
+    }
+
+    // (2) 빈 catch. swallow=on 이면 예외를 삼킨다
+    @GetMapping("/err/batch")
+    public Map<String, Object> errBatch(@RequestParam(defaultValue = "on") String swallow) {
+        return errorHandlingClient.batch(!"off".equalsIgnoreCase(swallow));
+    }
+
+    // (3) 로그에 개인정보. mask=off 면 그대로 찍는다
+    @GetMapping("/err/pii")
+    public Map<String, Object> errPii(@RequestParam(defaultValue = "off") String mask) {
+        return errorHandlingClient.pii(!"off".equalsIgnoreCase(mask));
+    }
+
+    // (4) 아무도 안 잡는 예외. 스프링 기본 오류 응답이 무엇을 담는지 본다
+    //     ?trace=true&message=true 를 붙이면 달라진다 (application.properties 의 on_param)
+    @GetMapping("/err/boom")
+    public Map<String, Object> errBoom() {
+        throw new IllegalStateException("연계 대상 기관코드 B9999999 를 찾을 수 없습니다");
     }
 }
