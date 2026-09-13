@@ -229,6 +229,13 @@ public class InteropController {
     @Resource
     private DocSearchClient docSearchClient;
 
+    // Phase 4.5 시큐어코딩
+    @Resource
+    private InsecureDbClient insecureDbClient;
+
+    @Resource
+    private FileDownloadClient fileDownloadClient;
+
     // --- (1) 타임아웃 ---
 
     // 상대가 sec 초 걸린다. 우리 readTimeout 은 5초.
@@ -401,5 +408,33 @@ public class InteropController {
     @GetMapping("/acl/calls/reset")
     public Map<String, Object> aclCallsReset() {
         return docSearchClient.aclCallsReset();
+    }
+
+    // ============================================================
+    //  Phase 4.5 : 시큐어코딩 (SQL 인젝션 · 경로 조작)
+    // ============================================================
+
+    // (1) SQL 인젝션 - 취약: 문자열 이어붙이기
+    @GetMapping("/sec/sqli-concat")
+    public Map<String, Object> secSqliConcat(@RequestParam(defaultValue = "민원") String kw) {
+        return insecureDbClient.searchConcat(kw);
+    }
+
+    // (1) SQL 인젝션 - 안전: 파라미터 바인딩(?)
+    @GetMapping("/sec/sqli-bind")
+    public Map<String, Object> secSqliBind(@RequestParam(defaultValue = "민원") String kw) {
+        return insecureDbClient.searchBind(kw);
+    }
+
+    // (2) 경로 조작 - 취약: 이름을 그대로 붙임
+    @GetMapping("/sec/download-unsafe")
+    public Map<String, Object> secDownloadUnsafe(@RequestParam(defaultValue = "공지사항.txt") String file) {
+        return fileDownloadClient.downloadUnsafe(file);
+    }
+
+    // (2) 경로 조작 - 안전: 정규화 후 기준폴더 확인
+    @GetMapping("/sec/download-safe")
+    public Map<String, Object> secDownloadSafe(@RequestParam(defaultValue = "공지사항.txt") String file) {
+        return fileDownloadClient.downloadSafe(file);
     }
 }
