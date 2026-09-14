@@ -305,8 +305,8 @@ public class InteropController {
 
     // 0. 상대 기관 야간 배치를 지금 돌린다 (상대가 파일을 떨군다)
     @GetMapping("/sftp/seed")
-    public Map<String, Object> sftpSeed() {
-        return sftpBatchClient.seed();
+    public Map<String, Object> sftpSeed(@RequestParam(defaultValue = "off") String modify) {
+        return sftpBatchClient.seed(!"off".equalsIgnoreCase(modify));
     }
 
     // 상대 서버 디스크를 그냥 들여다본다 (현실에선 못 본다)

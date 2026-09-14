@@ -90,8 +90,10 @@ public class SftpBatchClient {
     //     partner 컨테이너는 포트를 안 열어놨으므로 우리가 대신 불러준다.
     // ============================================================
     @SuppressWarnings("unchecked")
-    public Map<String, Object> seed() {
-        return restTemplate.postForObject(baseUrl + "/openapi/batch/seed", null, Map.class);
+    public Map<String, Object> seed(boolean modify) {
+        // ★ modify=true : 상대가 '파일명은 그대로, 내용만 고친' 수정본을 올린 상황
+        return restTemplate.postForObject(
+                baseUrl + "/openapi/batch/seed?modify=" + modify, null, Map.class);
     }
 
     @SuppressWarnings("unchecked")

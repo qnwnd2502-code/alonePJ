@@ -610,8 +610,12 @@ def _record(기관코드, 성명, 생년월일, 금액, 구분):
 
 
 @app.post("/openapi/batch/seed")
-async def batch_seed():
-    """상대 기관 야간 배치를 '지금' 돌린다. outbox 를 비우고 새로 만든다."""
+async def batch_seed(modify: bool = Query(default=False)):
+    """상대 기관 야간 배치를 '지금' 돌린다. outbox 를 비우고 새로 만든다.
+
+    ★ modify=true 면 **파일 이름은 그대로 두고 내용만 바꾼다.**
+      상대 기관이 "자료에 오류가 있어 수정본을 다시 올렸다" 는 상황이다.
+      실무에서 아주 흔하고, 이게 증분 수집의 함정이다."""
     os.makedirs(OUTBOX, exist_ok=True)
     os.makedirs(os.path.join(OUTBOX, "archive"), exist_ok=True)
     # ★ 학습용으로 권한을 활짝 연다. 파일을 만드는 계정(root)과
@@ -645,8 +649,11 @@ async def batch_seed():
 
     CRLF = b"\r\n"   # ★ 공공 전문은 대부분 CRLF 다. LF 로 만들면 길이가 1 어긋난다.
 
-    f1 = (_record("B1234567", "김유신", "19850312", 1250000, "1") + CRLF
-          + _record("B1234567", "홍길동", "19790401", 830000, "1") + CRLF
+    # ★ modify 면 금액이 달라진다. 파일명도 건수도 똑같다.
+    금액1 = 9999000 if modify else 1250000
+    금액2 = 8888000 if modify else 830000
+    f1 = (_record("B1234567", "김유신", "19850312", 금액1, "1") + CRLF
+          + _record("B1234567", "홍길동", "19790401", 금액2, "1") + CRLF
           + _record("B1234567", "박문수", "19920925", 2000000, "2") + CRLF)
     write("SUCH-20260908-0001.dat", f1)
 
@@ -661,7 +668,7 @@ async def batch_seed():
     write("SUCH-20260908-0003.dat", f3, done=False)
 
     return {
-        "결과": "상대 기관 야간 배치 완료",
+        "결과": "상대 기관 야간 배치 완료" + ("  ★ 수정본(파일명 동일, 내용 변경)" if modify else ""),
         "떨군위치": OUTBOX,
         "파일": made,
         "인코딩": JEONMUN_ENC,
