@@ -239,6 +239,10 @@ public class InteropController {
     @Resource
     private ErrorHandlingClient errorHandlingClient;
 
+    // 실습 9. 문서 수집기
+    @Resource
+    private DocCollector docCollector;
+
     // --- (1) 타임아웃 ---
 
     // 상대가 sec 초 걸린다. 우리 readTimeout 은 5초.
@@ -472,5 +476,34 @@ public class InteropController {
     @GetMapping("/err/boom")
     public Map<String, Object> errBoom() {
         throw new IllegalStateException("연계 대상 기관코드 B9999999 를 찾을 수 없습니다");
+    }
+
+    // ---- 실습 9 : 문서 수집기 ----
+
+    @GetMapping("/collect/reset")
+    public Map<String, Object> collectReset() {
+        return docCollector.reset();
+    }
+
+    @GetMapping("/collect/run")
+    public Map<String, Object> collectRun() {
+        return docCollector.run();
+    }
+
+    // 상대 기관의 실제 건수. since 를 주면 그 이후만 센다
+    @GetMapping("/collect/truth")
+    public Map<String, Object> collectTruth(@RequestParam(defaultValue = "") String since) {
+        return docCollector.truth(since);
+    }
+
+    // 지난 수집이 '돌고 있던' 시각에 문서 한 건이 올라온 상황을 만든다
+    @GetMapping("/collect/inject-during")
+    public Map<String, Object> collectInject() {
+        return docCollector.injectDuring();
+    }
+
+    @GetMapping("/collect/state")
+    public Map<String, Object> collectState() {
+        return docCollector.state();
     }
 }

@@ -853,3 +853,81 @@ async def docs_acl_calls():
 async def docs_acl_calls_reset():
     ACL_CALLS["count"] = 0
     return {"결과": "계기판 초기화"}
+
+
+# =========================================================================
+#  기관 문서저장소 (수집 대상).  실습 9
+#
+#  현실의 수집 API 를 흉내낸다.
+#    - 목록을 한 번에 다 주지 않는다. offset / limit 으로 나눠 준다 (페이징)
+#    - since 를 주면 그 시각 이후 생성/수정된 것만 준다 (증분 수집)
+# =========================================================================
+from datetime import datetime, timedelta
+
+DOCS2 = []
+DOC_SEQ = {"n": 0}
+
+
+def _now_iso():
+    return datetime.now().replace(microsecond=0).isoformat()
+
+
+def _mk(title, dept, created_at):
+    DOC_SEQ["n"] += 1
+    return {
+        "doc_id": "DOC-%04d" % DOC_SEQ["n"],
+        "title": title,
+        "dept": dept,
+        "created_at": created_at,
+    }
+
+
+@app.post("/openapi/docs2/reset")
+async def docs2_reset():
+    """문서저장소를 초깃값으로. 25건을 만든다."""
+    DOCS2.clear()
+    DOC_SEQ["n"] = 0
+    base = datetime.now().replace(microsecond=0) - timedelta(days=30)
+    부서 = ["기획부", "총무부", "사업부", "감사실", "정보화부"]
+    유형 = ["사업계획", "회의록", "지침", "결과보고", "공지"]
+    for i in range(25):
+        t = (base + timedelta(hours=i * 6)).isoformat()
+        DOCS2.append(_mk("%s_%02d호.hwp" % (유형[i % 5], i + 1), 부서[i % 5], t))
+    return {"결과": "문서저장소 초기화", "문서수": len(DOCS2)}
+
+
+@app.get("/openapi/docs2/list")
+async def docs2_list(offset: int = Query(default=0),
+                     limit: int = Query(default=10),
+                     since: str = Query(default="")):
+    """문서 목록. 페이징 필수. since 가 있으면 그 이후 것만."""
+    rows = sorted(DOCS2, key=lambda d: (d["created_at"], d["doc_id"]))
+    if since:
+        rows = [d for d in rows if d["created_at"] > since]
+    page = rows[offset:offset + limit]
+    return {
+        "총건수": len(rows),
+        "offset": offset,
+        "limit": limit,
+        "문서": page,
+    }
+
+
+@app.get("/openapi/docs2/count")
+async def docs2_count(since: str = Query(default="")):
+    """정답지. 지금 조건에 맞는 문서가 실제로 몇 건인지."""
+    rows = DOCS2
+    if since:
+        rows = [d for d in rows if d["created_at"] > since]
+    return {"실제건수": len(rows), "since": since or "(전체)"}
+
+
+@app.post("/openapi/docs2/inject")
+async def docs2_inject(title: str = Query(default="긴급공문.hwp"),
+                       dept: str = Query(default="기획부"),
+                       created_at: str = Query(default="")):
+    """문서를 한 건 끼워 넣는다. created_at 을 지정할 수 있다."""
+    at = created_at or _now_iso()
+    d = _mk(title, dept, at)
+    DOCS2.append(d)
+    return {"결과": "문서 추가", "문서": d, "총건수": len(DOCS2)}
