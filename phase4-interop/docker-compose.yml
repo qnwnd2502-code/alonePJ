@@ -16,6 +16,8 @@ services:
       PARTNER_API_KEY: eGov-DEMO-KEY-2026-abcdef123456
       # 상대 기관 주소. 개발계/운영계가 다르므로 반드시 설정으로 뺀다.
       PARTNER_BASE_URL: http://partner:8000
+      # ★ 우리 AI 제품 주소. 기관 시스템 설정 파일에 이 값이 박힌다.
+      AI_BASE_URL: http://aisvc:8000
       # ★ 오늘 추가. 같은 상대 기관인데 '웹서버를 거쳐 https 로' 들어가는 주소.
       #   http 주소와 나란히 두고 무엇이 달라지는지 비교한다.
       PARTNER_TLS_BASE_URL: https://partner-gw:8443
@@ -117,6 +119,13 @@ services:
     #   (안을 들여다볼 땐 docker compose exec 를 쓴다)
     volumes:
       - sftpdata:/home/eaiuser/outbox
+
+  # ============ ★ 우리 AI 제품 ============
+  # 지금까지 partner 가 '남의 시스템' 이었다면, 이건 '우리 제품' 이다.
+  # 기관 전자정부(boot)가 이걸 부른다. 자리가 바뀌었다.
+  aisvc:
+    build: ./aisvc
+    # ports 를 두지 않는다. 기관 백엔드가 컨테이너 네트워크로 부른다.
 
 volumes:
   m2:

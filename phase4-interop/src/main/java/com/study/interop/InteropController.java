@@ -243,6 +243,10 @@ public class InteropController {
     @Resource
     private DocCollector docCollector;
 
+    // ★ 기관 전자정부가 우리 AI 를 부르는 자리
+    @Resource
+    private EgovAiClient egovAiClient;
+
     // --- (1) 타임아웃 ---
 
     // 상대가 sec 초 걸린다. 우리 readTimeout 은 5초.
@@ -528,5 +532,25 @@ public class InteropController {
     @GetMapping("/collect/reconcile")
     public Map<String, Object> collectReconcile(@RequestParam(defaultValue = "off") String apply) {
         return docCollector.reconcile(!"off".equalsIgnoreCase(apply));
+    }
+
+    // ---- 기관(전자정부) → 우리 AI 제품 ----
+    // target = ok / wrongport / blocked
+
+    @GetMapping("/egov/health")
+    public Map<String, Object> egovHealth(@RequestParam(defaultValue = "ok") String target) {
+        return egovAiClient.health(target);
+    }
+
+    @GetMapping("/egov/ask")
+    public Map<String, Object> egovAsk(@RequestParam(defaultValue = "1") String preset,
+                                      @RequestParam(defaultValue = "ok") String target) {
+        return egovAiClient.ask(EgovAiClient.질문고르기(preset), target);
+    }
+
+    @GetMapping("/egov/ask-post")
+    public Map<String, Object> egovAskPost(@RequestParam(defaultValue = "1") String preset,
+                                          @RequestParam(defaultValue = "ok") String target) {
+        return egovAiClient.askPost(EgovAiClient.질문고르기(preset), target);
     }
 }
