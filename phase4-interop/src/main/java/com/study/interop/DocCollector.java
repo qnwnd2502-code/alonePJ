@@ -88,17 +88,22 @@ public class DocCollector {
             잠깐(1200);   // 상대 서버 부하를 고려한 간격
         }
 
-        int 중복 = 0;
+        int 신규 = 0, 갱신 = 0;
         for (Map<String, Object> d : 모은것) {
-            // ★ 커서를 앞당긴 대가로 같은 문서가 두 번 올 수 있다.
-            //   doc_id 로 거른다. 실습 6 의 멱등성과 같은 장치다.
-            if (이미있나(String.valueOf(d.get("doc_id")))) { 중복++; continue; }
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("doc_id", d.get("doc_id"));
             row.put("title", d.get("title"));
             row.put("dept", d.get("dept"));
             row.put("created_at", d.get("created_at"));
-            색인.add(row);
+            row.put("allow", d.get("allow"));
+
+            // ★ upsert : 이미 있으면 통째로 덮어쓰고, 없으면 새로 넣는다.
+            //   "무엇이 바뀌었는지" 를 비교하지 않는다. 상대가 보내줬다는 건
+            //   뭔가 바뀌었다는 뜻이고, 필드가 늘어나도 이 코드는 그대로다.
+            //   같은 걸 몇 번 해도 결과가 같다 = 멱등 연산이다.
+            int 자리 = 찾기(String.valueOf(d.get("doc_id")));
+            if (자리 >= 0) { 색인.set(자리, row); 갱신++; }
+            else           { 색인.add(row);      신규++; }
         }
 
         LocalDateTime 종료 = LocalDateTime.now().withNano(0);
@@ -111,8 +116,8 @@ public class DocCollector {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("호출로그", 호출로그);
         out.put("이번에받아온건수", 모은것.size());
-        out.put("그중중복", 중복);
-        out.put("새로색인한건수", 모은것.size() - 중복);
+        out.put("신규", 신규);
+        out.put("갱신", 갱신);
         out.put("색인누적건수", 색인.size());
         out.put("수집시작", 지난수집시작);
         out.put("수집종료", 지난수집종료);
@@ -190,12 +195,103 @@ public class DocCollector {
         return out;
     }
 
-    /** 이미 색인에 있는 문서인가. 실무에서는 DB 의 unique 제약이나 upsert 로 한다. */
-    private boolean 이미있나(String docId) {
-        for (Map<String, Object> r : 색인) {
-            if (docId.equals(String.valueOf(r.get("doc_id")))) return true;
+    // ------------------------------------------------------------
+    //  전체 대조 (reconciliation)
+    //
+    //  ★ 증분 수집은 삭제를 원리상 못 잡는다.
+    //    변경은 이벤트로 오지만 삭제는 '부재' 이고, 부재는 전송되지 않는다.
+    //
+    //  그래서 주기적으로 '지금 있는 것 전부' 를 받아 우리 색인과 맞춰본다.
+    //  본문은 안 받고 id 목록만 받으므로 전체 재수집보다 훨씬 싸다.
+    // ------------------------------------------------------------
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> reconcile(boolean apply) {
+        Map<String, Object> out = new LinkedHashMap<>();
+
+        Map<String, Object> r = restTemplate.getForObject(baseUrl + "/openapi/docs2/ids", Map.class);
+        List<String> 상대ids = (List<String>) (r == null ? List.of() : r.getOrDefault("ids", List.of()));
+
+        List<String> 우리에만있다 = new ArrayList<>();
+        for (Map<String, Object> row : 색인) {
+            String id = String.valueOf(row.get("doc_id"));
+            if (!상대ids.contains(id)) 우리에만있다.add(id);
         }
-        return false;
+
+        out.put("상대건수", 상대ids.size());
+        out.put("우리색인건수", 색인.size());
+        out.put("우리에만있는것", 우리에만있다);
+        out.put("판정", 우리에만있다.isEmpty() ? "일치" : "★ " + 우리에만있다.size() + "건이 상대에서 사라졌다");
+
+        if (apply && !우리에만있다.isEmpty()) {
+            색인.removeIf(row -> 우리에만있다.contains(String.valueOf(row.get("doc_id"))));
+            out.put("조치", "색인에서 제거했다");
+            out.put("제거후색인건수", 색인.size());
+        } else if (!우리에만있다.isEmpty()) {
+            out.put("조치", "없음 (apply=on 을 붙이면 실제로 제거한다)");
+        }
+
+        // ★ 실무에서는 바로 지우지 않는다.
+        //   1일차 '미확인' -> 3일차 비활성화(검색 제외) -> 30일차 물리 삭제.
+        //   상대가 "폴더 옮긴 거였어요" 라고 하는 날이 반드시 오기 때문이다.
+        //   그리고 목록 조회가 실패했거나 건수가 급감했으면 판정 자체를 건너뛴다.
+        out.put("실무주의", "즉시 삭제하지 말 것. 비활성화 -> 유예 -> 삭제. 건수 급감 시 판정 중단");
+        return out;
+    }
+
+    // ------------------------------------------------------------
+    //  검색 — 색인에 저장해둔 권한으로 거른다 (실습 8 의 early binding)
+    // ------------------------------------------------------------
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> search(String user) {
+        Map<String, Object> out = new LinkedHashMap<>();
+
+        Map<String, Object> u = restTemplate.getForObject(
+                baseUrl + "/openapi/docs2/user?id=" + user, Map.class);
+        String 부서 = String.valueOf(u == null ? "" : u.get("부서"));
+
+        out.put("사용자", user);
+        out.put("이름", u == null ? "-" : u.get("이름"));
+        out.put("부서", 부서);
+
+        List<Map<String, Object>> 보여줄것 = new ArrayList<>();
+        for (Map<String, Object> r : 색인) {
+            Object allow = r.get("allow");
+            boolean 허용 = (allow instanceof List<?> l) && l.contains(부서);
+            if (허용) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("doc_id", r.get("doc_id"));
+                row.put("title", r.get("title"));
+                row.put("색인에저장된allow", allow);
+                보여줄것.add(row);
+            }
+        }
+        out.put("검색결과건수", 보여줄것.size());
+        out.put("검색결과", 보여줄것);
+        return out;
+    }
+
+    // ------------------------------------------------------------
+    //  상대 기관에서 일어나는 일 (학습용 창구)
+    // ------------------------------------------------------------
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> revoke(String docId) {
+        return restTemplate.postForObject(
+                baseUrl + "/openapi/docs2/revoke?doc_id=" + docId, null, Map.class);
+    }
+
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> remove(String docId) {
+        return restTemplate.postForObject(
+                baseUrl + "/openapi/docs2/remove?doc_id=" + docId, null, Map.class);
+    }
+
+    /** 색인에서 그 문서의 자리를 찾는다. 없으면 -1.
+     *  실무에서는 DB 의 unique 제약 + upsert(MERGE) 한 방으로 끝낸다. */
+    private int 찾기(String docId) {
+        for (int i = 0; i < 색인.size(); i++) {
+            if (docId.equals(String.valueOf(색인.get(i).get("doc_id")))) return i;
+        }
+        return -1;
     }
 
     private void 잠깐(long ms) {
