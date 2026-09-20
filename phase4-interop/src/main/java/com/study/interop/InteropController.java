@@ -506,4 +506,27 @@ public class InteropController {
     public Map<String, Object> collectState() {
         return docCollector.state();
     }
+
+    @GetMapping("/collect/search")
+    public Map<String, Object> collectSearch(@RequestParam(defaultValue = "hong") String user) {
+        return docCollector.search(user);
+    }
+
+    // 상대 기관이 문서를 '비공개' 로 돌린다 (본문은 그대로)
+    @GetMapping("/collect/revoke")
+    public Map<String, Object> collectRevoke(@RequestParam(defaultValue = "DOC-0001") String doc) {
+        return docCollector.revoke(doc);
+    }
+
+    // 상대 기관이 문서를 아예 지운다
+    @GetMapping("/collect/remove")
+    public Map<String, Object> collectRemove(@RequestParam(defaultValue = "DOC-0002") String doc) {
+        return docCollector.remove(doc);
+    }
+
+    // 전체 대조. apply=on 이면 실제로 색인에서 제거한다
+    @GetMapping("/collect/reconcile")
+    public Map<String, Object> collectReconcile(@RequestParam(defaultValue = "off") String apply) {
+        return docCollector.reconcile(!"off".equalsIgnoreCase(apply));
+    }
 }

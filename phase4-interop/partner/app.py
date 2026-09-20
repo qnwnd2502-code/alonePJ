@@ -879,6 +879,10 @@ def _mk(title, dept, created_at):
         "title": title,
         "dept": dept,
         "created_at": created_at,
+        # 처음엔 그 부서만 볼 수 있다.
+        "allow": [dept],
+        # 권한이 마지막으로 바뀐 시각. 처음엔 생성 시각과 같다.
+        "acl_updated_at": created_at,
     }
 
 
@@ -903,7 +907,9 @@ async def docs2_list(offset: int = Query(default=0),
     """문서 목록. 페이징 필수. since 가 있으면 그 이후 것만."""
     rows = sorted(DOCS2, key=lambda d: (d["created_at"], d["doc_id"]))
     if since:
-        rows = [d for d in rows if d["created_at"] > since]
+        # 본문이 새로 생겼거나, 권한이 바뀐 것을 모두 준다.
+        rows = [d for d in rows
+                if max(d["created_at"], d["acl_updated_at"]) > since]
     page = rows[offset:offset + limit]
     return {
         "총건수": len(rows),
@@ -918,7 +924,8 @@ async def docs2_count(since: str = Query(default="")):
     """정답지. 지금 조건에 맞는 문서가 실제로 몇 건인지."""
     rows = DOCS2
     if since:
-        rows = [d for d in rows if d["created_at"] > since]
+        rows = [d for d in rows
+                if max(d["created_at"], d["acl_updated_at"]) > since]
     return {"실제건수": len(rows), "since": since or "(전체)"}
 
 
@@ -931,3 +938,62 @@ async def docs2_inject(title: str = Query(default="긴급공문.hwp"),
     d = _mk(title, dept, at)
     DOCS2.append(d)
     return {"결과": "문서 추가", "문서": d, "총건수": len(DOCS2)}
+
+
+# =========================================================================
+#  문서저장소에 '권한' 과 '변경' 을 붙인다.  실습 10
+#
+#  현실의 문서저장소는 세 가지가 따로 논다.
+#    본문이 바뀐다      content_updated_at
+#    권한이 바뀐다      acl_updated_at      <- 본문은 그대로인데 이것만 바뀐다
+#    문서가 사라진다     목록에서 그냥 없어진다
+# =========================================================================
+
+# 부서 -> 그 부서 사람이 속한 그룹
+USER_DEPT = {
+    "hong": {"이름": "홍길동", "부서": "기획부"},
+    "kim":  {"이름": "김철수", "부서": "총무부"},
+    "lee":  {"이름": "이영희", "부서": "감사실"},
+}
+
+
+@app.get("/openapi/docs2/user")
+async def docs2_user(id: str = Query(...)):
+    u = USER_DEPT.get(id)
+    if not u:
+        raise HTTPException(status_code=404, detail="그런 사용자 없음")
+    return {"계정": id, "이름": u["이름"], "부서": u["부서"]}
+
+
+@app.post("/openapi/docs2/revoke")
+async def docs2_revoke(doc_id: str = Query(...)):
+    """문서를 '비공개' 로 돌린다. 본문은 그대로다.
+
+    현실에서 이런 일이 왜 생기나 :
+      - 대외비로 재분류
+      - 개인정보가 들어있는 게 뒤늦게 발견됨
+      - 부서 이관
+    """
+    for d in DOCS2:
+        if d["doc_id"] == doc_id:
+            d["allow"] = ["비공개"]
+            d["acl_updated_at"] = _now_iso()
+            return {"결과": "권한 회수", "문서": d,
+                    "안내": "본문은 안 바뀌었다. acl_updated_at 만 바뀌었다"}
+    raise HTTPException(status_code=404, detail="그런 문서 없음")
+
+
+@app.post("/openapi/docs2/remove")
+async def docs2_remove(doc_id: str = Query(...)):
+    """문서를 저장소에서 지운다. 목록에서 그냥 사라진다."""
+    for i, d in enumerate(DOCS2):
+        if d["doc_id"] == doc_id:
+            DOCS2.pop(i)
+            return {"결과": "문서 삭제", "지운문서": d["title"], "남은건수": len(DOCS2)}
+    raise HTTPException(status_code=404, detail="그런 문서 없음")
+
+
+@app.get("/openapi/docs2/ids")
+async def docs2_ids():
+    """지금 저장소에 '존재하는' 문서 id 전부. 전체 대조(reconciliation) 용."""
+    return {"문서수": len(DOCS2), "ids": sorted(d["doc_id"] for d in DOCS2)}
