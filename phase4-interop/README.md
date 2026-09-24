@@ -2325,3 +2325,111 @@ OO공단 업무망 (10.20.30.0/24)           우리 AI 존 (172.30.0.0/24)
 - 호스트 포트 `8443 -> 18443` (partner-gw). 재부팅 후 윈도우가 8359~8458 을 예약.
   확인 : `netsh interface ipv4 show excludedportrange protocol=tcp`. 컨테이너끼리는 여전히 partner-gw:8443
 - `fw/policy.conf` 는 **티켓 시작 상태(틀린 신청서대로)** 로 커밋해둔다. 다시 해볼 수 있게.
+
+---
+
+## 실습 13 — 티켓 #2 : 폐쇄망 반입 (졸업 기준표 6번)
+
+```
+tickets/T-2026-0426/                 ★ 티켓 원문 + 서버 정보 + 반입 기준
+tickets/T-2026-0426/usb/             신입이 준비한 USB (wheels 폴더는 커밋 안 함 — 재현법은 아래)
+docker-compose.yml  offline-dev      ★ 네트워크 카드가 아예 없는 서버 (network_mode: none)
+```
+
+폐쇄망에서는 `pip install`, `docker pull`, `mvn` 이 전부 안 된다. **USB 에 다 담아 가야** 하고,
+반입은 신청·심사에 며칠 걸린다. 빠뜨리면 또 며칠. 공공 현장 설치 일정이 밀리는 1순위 이유.
+
+### 티켓
+
+> "폐쇄망이라 인터넷 안 되고 USB 1개만 반입됩니다. 신청은 건당 3일이라 **오늘** 넣어야 해요.
+>  박사원님이 보낸 반입 목록으로 신청하면 될까요?"
+
+신입 박사원 : "필요한 패키지는 **제 노트북에서** `pip download` 로 미리 다 받아뒀습니다!"
+
+### 증상
+
+```
+docker compose run --rm offline-dev sh -c "pip install --no-index --find-links wheels -r aisvc/requirements.txt"
+-> No matching distribution found for pydantic-core==2.46.5
+```
+
+`--no-index` = 인터넷(PyPI)에서 찾지 마라 / `--find-links wheels` = 이 폴더에서만 찾아라. 폐쇄망 설치의 기본형.
+
+### wheel 파일 이름 읽는 법
+
+```
+pydantic_core - 2.46.5 - cp314 - cp314 - win_amd64 .whl
+                         └─①─┘   └─②─┘   └───③───┘
+① 파이썬 버전  cp314 = CPython 3.14      <- 서버는 3.12
+② ABI        3.14 내부 규격             <- 서버는 3.12
+③ 플랫폼      win_amd64 = 윈도우 64비트  <- 서버는 리눅스   (amd64 = x86-64. x86 문제가 아니다)
+```
+
+신입 노트북이 **윈도우 + 파이썬 3.14** 였다. 파이썬 버전만 맞춰도, OS 만 맞춰도 둘 다 실패한다.
+
+★ 왜 이것 하나만 걸렸나 — 나머지는 전부 `py3-none-any` 였다.
+
+```
+py3-none-any       순수 파이썬           어디서 받든 된다 (안심)
+cp312-...-linux    C·Rust 로 컴파일됨    ★ 서버와 딱 맞아야 한다
+```
+
+반입 목록은 **`any` 로 안 끝나는 파일만** 골라 보면 된다.
+AI 쪽 단골 : pydantic-core, numpy, pandas, torch(CUDA 버전까지), psycopg2, cryptography.
+
+### 해결 — 서버와 같은 도커 이미지 안에서 받는다
+
+```powershell
+docker run --rm -v "${PWD}\tickets\T-2026-0426\usb:/usb" -w /usb python:3.12-slim pip download -r aisvc/requirements.txt -d wheels-linux
+docker compose run --rm offline-dev sh -c "pip install --no-index --find-links wheels-linux -r aisvc/requirements.txt"
+```
+
+```
+pydantic_core-2.46.5-cp312-cp312-manylinux_2_17_x86_64...whl    -> 설치 성공
+```
+
+`manylinux_2_17` = glibc 2.17 이상인 리눅스 공용 규격.
+
+★ 규칙 : **반입할 패키지는 대상 서버와 같은 OS·파이썬 버전에서 받는다.** 가장 쉬운 방법은 같은 이미지 안에서.
+
+### 설치만 되면 끝이 아니다 — 반입 심사
+
+기관 반입 기준 : 파일별 **파일명·크기·SHA-256**, 목록과 다르면 반입 불가, **목록에 없는 파일은 반입 불가**.
+
+```
+docker compose run --rm offline-dev sh -c "ls -l aisvc wheels-linux; sha256sum aisvc/* wheels-linux/*"
+```
+
+★ 반입 당일 걸리는 함정 두 개 :
+
+```
+① 윈도우용 wheels/ 가 USB 에 그대로 남아 있다     -> 목록에 없는 파일 = 반입 불가
+② aisvc/__pycache__/ 가 생겨 있다                -> USB 위에서 테스트로 서비스를 띄웠기 때문
+                                                  파이썬이 실행하면서 캐시 파일을 만든다
+```
+
+★ **테스트는 USB 사본에서 한다. 해시는 USB 최종본에서, 맨 마지막에 뽑는다.**
+  해시를 뽑은 뒤 파일을 하나라도 건드리면 반입 당일 대조에서 걸린다.
+
+### 실무 팁 — 반입은 한 번에
+
+추가 반입은 또 며칠이다. 처음부터 같이 챙길 것 :
+설치 매뉴얼, 롤백용 이전 버전, 기동·점검 스크립트, 도커를 쓸 경우 `docker save` 로 뽑은 이미지 tar 와 그 해시.
+
+### 회신에서 달라진 점 (실습 12 와 비교)
+
+```
+실습 12  상대 실수   -> 사과하지 않는다. 사실과 올바른 값만
+실습 13  우리 실수   -> ★ 먼저 사과한다. 그리고 '어떻게 확인했는지' 를 붙인다
+```
+
+### 신입에게 줄 피드백 한 줄
+
+> "받는 곳이 아니라 **설치할 곳 기준**으로 받아야 해. 다음부턴 서버 사양 먼저 물어보고, 같은 이미지 안에서 받자."
+
+### 재현법 (wheels 폴더는 커밋 안 함)
+
+```powershell
+cd tickets\T-2026-0426\usb
+python -m pip download -r aisvc/requirements.txt -d wheels     # 윈도우 PC 에서 = 신입이 한 그대로
+```

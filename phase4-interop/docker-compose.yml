@@ -159,6 +159,18 @@ services:
     depends_on:
       - aisvc
 
+  # ============ ★ OO공단 폐쇄망 개발서버 (실습 13) ============
+  # 인터넷이 '아예' 없는 서버. network_mode: none = 네트워크 카드가 없다.
+  # USB 로 들고 온 것(usb 폴더)만 쓸 수 있다.
+  # 평소엔 안 뜬다(profiles). 쓸 때만 : docker compose run --rm offline-dev <명령>
+  offline-dev:
+    image: python:3.12-slim
+    profiles: ["lab"]
+    network_mode: none
+    working_dir: /usb
+    volumes:
+      - ./tickets/T-2026-0426/usb:/usb
+
 networks:
   # OO공단 업무망 (가상)
   agency:

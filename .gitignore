@@ -47,3 +47,7 @@ known_hosts
 *.hwp
 *.hwpx
 제안요청서*
+
+# ── 실습 13 (폐쇄망 반입) ── 반입용 패키지·이미지는 크고 재생성 가능하므로 커밋하지 않는다
+phase4-interop/tickets/*/usb/wheels*/
+phase4-interop/tickets/*/usb/*.tar
