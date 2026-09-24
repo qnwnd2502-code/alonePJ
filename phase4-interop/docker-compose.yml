@@ -17,7 +17,8 @@ services:
       # 상대 기관 주소. 개발계/운영계가 다르므로 반드시 설정으로 뺀다.
       PARTNER_BASE_URL: http://partner:8000
       # ★ 우리 AI 제품 주소. 기관 시스템 설정 파일에 이 값이 박힌다.
-      AI_BASE_URL: http://aisvc:8000
+      # ★ 실습 12 부터 기관은 AI 서버에 '직접' 못 붙는다. 방화벽 뒤 VIP 로만 간다.
+      AI_BASE_URL: http://10.20.30.100:443
       # ★ 오늘 추가. 같은 상대 기관인데 '웹서버를 거쳐 https 로' 들어가는 주소.
       #   http 주소와 나란히 두고 무엇이 달라지는지 비교한다.
       PARTNER_TLS_BASE_URL: https://partner-gw:8443
@@ -47,6 +48,15 @@ services:
         condition: service_healthy
       partner-sftp:
         condition: service_started
+      fw:
+        condition: service_started
+    # ★ 실습 12. boot 는 이제 'OO공단 AI연계 개발서버' 역할도 한다.
+    #   기관망(agency) 에서 10.20.30.15 라는 고정 IP 를 갖는다.
+    #   (networks 를 적으면 default 에 자동으로 안 붙으므로 default 도 같이 적는다)
+    networks:
+      default: {}
+      agency:
+        ipv4_address: 10.20.30.15
 
   # ============ 상대 기관 서버 (연계를 '당하는' 쪽) ============
   # 회사에서는 이 컨테이너가 없다. 상대 기관 전산실에 있다.
@@ -77,7 +87,10 @@ services:
     ports:
       # 브라우저로도 열어보기 위해 노출한다.
       # (앱 서버는 노출 금지지만 웹서버는 원래 외부에 서는 자리다)
-      - "8443:8443"
+      # 2026-09-24 : 재부팅 후 윈도우가 8359~8458 을 예약해 8443 바인딩 실패.
+      #   확인: netsh interface ipv4 show excludedportrange protocol=tcp
+      #   호스트 쪽만 18443 으로 옮긴다. 컨테이너끼리는 여전히 partner-gw:8443 이다.
+      - "18443:8443"
     volumes:
       - ./partner-gw/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       # ★ 인증서를 이미지 안에 굽지 않는다. 볼륨으로 '읽기 전용' 마운트한다.
@@ -125,7 +138,38 @@ services:
   # 기관 전자정부(boot)가 이걸 부른다. 자리가 바뀌었다.
   aisvc:
     build: ./aisvc
+    # ★ 실습 12. AI 존(ainet) 에만 있다. 기관망에서는 방화벽(fw)을 거쳐야만 닿는다.
+    networks:
+      - ainet
     # ports 를 두지 않는다. 기관 백엔드가 컨테이너 네트워크로 부른다.
+
+  # ============ ★ OO공단 방화벽 (실습 12) ============
+  # 기관망(agency) 과 AI 존(ainet) 사이에 선다. iptables 로 패킷을 진짜로 버린다.
+  # 정책은 fw/policy.conf — 방화벽 담당자가 '신청서에 적힌 그대로' 넣은 것.
+  fw:
+    build: ./fw
+    cap_add:
+      - NET_ADMIN            # iptables 를 쓰려면 필요하다
+    networks:
+      agency:
+        ipv4_address: 10.20.30.100   # 기관이 보는 'AI 서비스 VIP'
+      ainet: {}
+    volumes:
+      - ./fw/policy.conf:/policy/policy.conf:ro
+    depends_on:
+      - aisvc
+
+networks:
+  # OO공단 업무망 (가상)
+  agency:
+    ipam:
+      config:
+        - subnet: 10.20.30.0/24
+  # 우리 AI 서비스 존
+  ainet:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
 
 volumes:
   m2:
