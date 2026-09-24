@@ -247,6 +247,10 @@ public class InteropController {
     @Resource
     private EgovAiClient egovAiClient;
 
+    // 실습 12. 개통 확인 도구
+    @Resource
+    private NetCheck netCheck;
+
     // --- (1) 타임아웃 ---
 
     // 상대가 sec 초 걸린다. 우리 readTimeout 은 5초.
@@ -552,5 +556,12 @@ public class InteropController {
     public Map<String, Object> egovAskPost(@RequestParam(defaultValue = "1") String preset,
                                           @RequestParam(defaultValue = "ok") String target) {
         return egovAiClient.askPost(EgovAiClient.질문고르기(preset), target);
+    }
+
+    // ---- 실습 12 : 개통 확인 (TCP 연결만 해본다) ----
+    @GetMapping("/net/check")
+    public Map<String, Object> netCheck(@RequestParam(defaultValue = "10.20.30.100") String host,
+                                       @RequestParam(defaultValue = "443") int port) {
+        return netCheck.tcp(host, port);
     }
 }

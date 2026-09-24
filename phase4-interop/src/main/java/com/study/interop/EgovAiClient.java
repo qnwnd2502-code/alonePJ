@@ -56,7 +56,8 @@ public class EgovAiClient {
     private String 주소(String target) {
         return switch (target) {
             // 서비스는 떠 있는데 포트를 잘못 적은 경우
-            case "wrongport" -> aiBaseUrl.replace(":8000", ":9999");
+            // (실습 12 부터 AI 는 방화벽 뒤에 있어서, 떠 있는 다른 호스트의 닫힌 포트로 재현한다)
+            case "wrongport" -> "http://partner:9999";
             // 방화벽이 패킷을 버리는 경우 (통신이 안 되는 대역으로 보낸다)
             case "blocked"   -> "http://192.0.2.1:8000";
             default          -> aiBaseUrl;
