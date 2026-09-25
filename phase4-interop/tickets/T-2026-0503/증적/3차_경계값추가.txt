@@ -1,0 +1,35 @@
+-------------------------------------------------------------------------------
+Test set: com.study.interop.MaskingUtilTest
+-------------------------------------------------------------------------------
+Tests run: 7, Failures: 1, Errors: 1, Skipped: 0, Time elapsed: 0.215 s <<< FAILURE! -- in com.study.interop.MaskingUtilTest
+com.study.interop.MaskingUtilTest.maskPhone_짧은값 -- Time elapsed: 0.011 s <<< ERROR!
+java.lang.StringIndexOutOfBoundsException: Range [7, 5) out of bounds for length 5
+	at java.base/jdk.internal.util.Preconditions$1.apply(Preconditions.java:55)
+	at java.base/jdk.internal.util.Preconditions$1.apply(Preconditions.java:52)
+	at java.base/jdk.internal.util.Preconditions$4.apply(Preconditions.java:213)
+	at java.base/jdk.internal.util.Preconditions$4.apply(Preconditions.java:210)
+	at java.base/jdk.internal.util.Preconditions.outOfBounds(Preconditions.java:98)
+	at java.base/jdk.internal.util.Preconditions.outOfBoundsCheckFromToIndex(Preconditions.java:112)
+	at java.base/jdk.internal.util.Preconditions.checkFromToIndex(Preconditions.java:349)
+	at java.base/java.lang.String.checkBoundsBeginEnd(String.java:4855)
+	at java.base/java.lang.String.substring(String.java:2823)
+	at java.base/java.lang.String.substring(String.java:2796)
+	at com.study.interop.MaskingUtil.maskPhone(MaskingUtil.java:46)
+	at com.study.interop.MaskingUtilTest.maskPhone_짧은값(MaskingUtilTest.java:56)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+
+com.study.interop.MaskingUtilTest.maskRrn_형식오류 -- Time elapsed: 0.017 s <<< FAILURE!
+org.opentest4j.AssertionFailedError: expected: <************> but was: <900101-12345>
+	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+	at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+	at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:177)
+	at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1145)
+	at com.study.interop.MaskingUtilTest.maskRrn_형식오류(MaskingUtilTest.java:50)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+

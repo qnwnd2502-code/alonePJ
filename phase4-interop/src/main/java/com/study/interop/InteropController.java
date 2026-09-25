@@ -564,4 +564,16 @@ public class InteropController {
                                        @RequestParam(defaultValue = "443") int port) {
         return netCheck.tcp(host, port);
     }
+
+    // ---- 실습 14 : 마스킹 유틸을 직접 눌러본다 ----
+    @GetMapping("/mask")
+    public Map<String, Object> mask(@RequestParam(defaultValue = "홍길동") String name,
+                                    @RequestParam(defaultValue = "900101-1234567") String rrn,
+                                    @RequestParam(defaultValue = "010-1234-5678") String phone) {
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("이름", name + "  ->  " + MaskingUtil.maskName(name));
+        out.put("주민번호", rrn + "  ->  " + MaskingUtil.maskRrn(rrn));
+        out.put("휴대폰", phone + "  ->  " + MaskingUtil.maskPhone(phone));
+        return out;
+    }
 }
