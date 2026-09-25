@@ -43,3 +43,32 @@ def _answer(q, 경로):
         "받은바이트(UTF-8)": len(q.encode("utf-8")),
         "답변": "OO항 입항 절차는 ... (AI 답변이라고 치자)" if q else "질문이 비었습니다",
     }
+
+
+# =========================================================================
+#  실습 15 : 사용자별 문서 검색
+#
+#  AI 서버는 '누가 물었는지' 를 X-User-Id 헤더로 받는다.
+#  그 사람 부서의 문서만 찾아준다. (권한별 검색 — 실습 8 의 그것)
+# =========================================================================
+from fastapi import Header, HTTPException
+
+USERS = {"hong": "기획부", "kim": "총무부", "lee": "감사실"}
+
+DOCS = [
+    {"id": "D-01", "title": "2026 사업계획",        "dept": "기획부"},
+    {"id": "D-02", "title": "예산 편성 기준",        "dept": "기획부"},
+    {"id": "D-03", "title": "청사 관리 지침",        "dept": "총무부"},
+    {"id": "D-04", "title": "물품 구매 절차",        "dept": "총무부"},
+    {"id": "D-05", "title": "내부감사 결과보고",      "dept": "감사실"},
+    {"id": "D-06", "title": "감사 지적사항 조치계획",  "dept": "감사실"},
+]
+
+
+@app.get("/ai/search")
+async def search(q: str = "", x_user_id: str = Header(default="")):
+    dept = USERS.get(x_user_id)
+    if not dept:
+        raise HTTPException(status_code=401, detail="누가 묻는지 모릅니다 (X-User-Id 없음)")
+    hits = [d for d in DOCS if d["dept"] == dept and q in d["title"]]
+    return {"AI가받은사용자": x_user_id, "부서": dept, "검색결과": hits}
