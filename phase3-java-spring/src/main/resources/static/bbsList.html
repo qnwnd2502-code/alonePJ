@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>OO공단 공지사항</title>
+  </head>
+  <body>
+    <h2>공지사항</h2>
+    <!-- 실제 현장에서는 WEB-INF/jsp/bbs/BbsList.jsp 자리다. 실습이라 정적 HTML 로 둔다 -->
+    <form action="/bbs/selectBbsList.do" method="get">
+      <input type="hidden" name="pageIndex" value="1" />
+      <input type="text" name="searchKeyword" placeholder="제목 검색" />
+      <button type="submit">검색</button>
+    </form>
+  </body>
+</html>
