@@ -141,6 +141,17 @@ services:
     # ★ 실습 12. AI 존(ainet) 에만 있다. 기관망에서는 방화벽(fw)을 거쳐야만 닿는다.
     networks:
       - ainet
+    environment:
+      # ★ 실습 17. 우리 제품이 부르는 외부 LLM API 주소
+      LLM_URL: http://llm-ext:8000/v1/chat
+
+  # ============ ★ 외부 LLM API — 클라우드 업체 서버 (실습 17) ============
+  # 원래는 인터넷 건너편, 남의 회사 서버다. 현실에서는 이 로그를 우리가 볼 수 없다.
+  # 학습용으로 창문을 낸 것 :  docker compose logs llm-ext
+  llm-ext:
+    build: ./llm-ext
+    networks:
+      - ainet
     # ports 를 두지 않는다. 기관 백엔드가 컨테이너 네트워크로 부른다.
 
   # ============ ★ OO공단 방화벽 (실습 12) ============

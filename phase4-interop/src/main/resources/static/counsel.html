@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>OO공단 민원 AI 상담</title>
+<style>
+  body { font-family: "맑은 고딕", sans-serif; max-width: 640px; margin: 30px auto; padding: 0 16px; }
+  textarea { width: 100%; height: 80px; font-size: 15px; }
+  button { margin: 6px 4px 0 0; padding: 6px 12px; }
+  pre { background: #f4f4f4; padding: 12px; white-space: pre-wrap; }
+  .ex { color: #666; font-size: 13px; }
+</style>
+</head>
+<body>
+<h2>OO공단 민원 AI 상담</h2>
+
+<p class="ex">점검 기간 민원 원문(발췌) — 눌러서 넣기</p>
+<button type="button" onclick="fill('A')">예시 A</button>
+<button type="button" onclick="fill('B')">예시 B</button>
+<button type="button" onclick="fill('C')">예시 C</button>
+
+<p><textarea id="question" placeholder="궁금한 점을 적어주세요"></textarea></p>
+<button type="button" onclick="ask()">상담하기</button>
+
+<h3>결과</h3>
+<pre id="result">-</pre>
+
+<script>
+  // 번호는 전부 가짜다
+  const EXAMPLES = {
+    A: "제 주민번호 900101-1234567 인데 연금 납부내역 조회 되나요?",
+    B: "주민번호 8505052345678 로 가입이력 확인 부탁드립니다",
+    C: "제 번호는 770707 1234567 입니다. 환급금 있나요?"
+  };
+
+  function fill(k) {
+    document.getElementById("question").value = EXAMPLES[k];
+  }
+
+  async function ask() {
+    const question = document.getElementById("question").value;
+    const res = await fetch("/counsel/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: question })
+    });
+    document.getElementById("result").textContent = JSON.stringify(await res.json(), null, 2);
+  }
+</script>
+</body>
+</html>
