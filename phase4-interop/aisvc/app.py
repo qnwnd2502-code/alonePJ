@@ -72,3 +72,35 @@ async def search(q: str = "", x_user_id: str = Header(default="")):
         raise HTTPException(status_code=401, detail="누가 묻는지 모릅니다 (X-User-Id 없음)")
     hits = [d for d in DOCS if d["dept"] == dept and q in d["title"]]
     return {"AI가받은사용자": x_user_id, "부서": dept, "검색결과": hits}
+
+
+# =========================================================================
+#  실습 17 : 민원 AI 상담
+#
+#  기관 백엔드(Java) → 여기(/ai/counsel) → 외부 LLM API(클라우드 업체) → 답변
+#
+#  우리 제품은 받은 질문을 프롬프트에 넣어 외부 LLM 으로 보낸다.
+#  연계규격서 : "질문의 개인정보 가리기는 기관 백엔드가 한다 (SFR-PII-04)"
+# =========================================================================
+import json
+import os
+import urllib.request
+
+LLM_URL = os.environ.get("LLM_URL", "http://llm-ext:8000/v1/chat")
+
+
+@app.post("/ai/counsel")
+async def counsel(request: Request):
+    body = await request.json()
+    q = body.get("question", "")
+    print(f"[aisvc] 상담 질문 수신 : {q}", flush=True)
+
+    prompt = f"너는 OO공단 민원 상담원이다. 아래 질문에 답하라.\n질문: {q}"
+    data = json.dumps({"prompt": prompt}, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        LLM_URL, data=data,
+        headers={"Content-Type": "application/json; charset=utf-8"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        res = json.loads(r.read().decode("utf-8"))
+
+    return {"answer": res.get("answer", "")}
