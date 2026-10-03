@@ -2744,3 +2744,38 @@ pip wheel 반입    서버와 같은 OS·파이썬 버전용 파일을 골라야
                   ★ CPU 종류는 여전히 맞아야 한다   docker image inspect oo-ai:1.0 --format "{{.Os}}/{{.Architecture}}"
                     맥(arm64)에서 구운 이미지는 amd64 서버에서 exec format error → --platform linux/amd64
 ```
+
+
+## 실습 19 — 티켓 #8 : 장애 3건, 누가 고쳐야 하나 (졸업 기준표 2번)
+
+```
+tickets/T-2026-0607/T-2026-0607-장애판정.md    티켓 (오류 3건, 조치 주체 A~D 판정)
+tickets/T-2026-0607/기관서버로그/               실제로 장애를 일으켜 받은 boot 로그
+tickets/T-2026-0607/우리서버로그/               aisvc 로그 (우리 제품 로그는 우리가 꺼내 본다)
+tickets/T-2026-0607/T-2026-0607-풀이.md        판정표 + 가르는 순서
+CounselController /counsel/history             내 상담 이력 (1번 장애 → 수정)
+```
+
+### 스택트레이스 읽는 도구
+
+```
+① 맨 위 예외 줄             무슨 일
+② 처음 나오는 at com.study   우리 코드 몇 번째 줄 (org.springframework / java.base 줄은 건너뛴다)
+③ 맨 마지막 Caused by:       진짜 원인
+```
+
+### 판정
+
+| # | 증상 | 가른 증거 | 주체 |
+|---|---|---|---|
+| 1 | lee 이력 조회 500 | `at com.study ...:84` `NullPointerException` | 우리 SI |
+| 2 | "잠시 후 다시 시도" | boot `500` (답은 왔다) → aisvc `Name or service not known` | 외부 LLM 업체 (+우리 제품 안내 개선) |
+| 3 | "잠시 후 다시 시도" | `Connect timed out` + aisvc 로그에 기록 없음 | 기관 인프라팀 (방화벽) |
+
+★ 2·3번은 화면 증상이 같다. **상대가 답을 했나 / 상대 로그에 남았나** 로 가른다.
+★ 에러가 나면 남부터 의심하게 된다. `at com.study` 가 위에 있으면 넘어진 건 우리다.
+
+### 수정 (사용자)
+
+- `HISTORY.get` → `getOrDefault(userId, Collections.emptyList())` — null(서랍 없음) ≠ 0건(빈 서랍)
+- 테스트 밖의 값(로그인 안 한 사람)으로 찌르니 또 500 → 로그인 확인 + **401**
