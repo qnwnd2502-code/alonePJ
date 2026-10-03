@@ -26,6 +26,6 @@ iptables -A INPUT -s 10.20.30.0/24 -p tcp -j DROP
 echo "  DROP    그 외 기관망(10.20.30.0/24) 에서 오는 모든 새 연결"
 
 # AI 서비스 VIP : 443 으로 들어온 요청을 내부 AI 서버로 넘긴다.
-socat TCP-LISTEN:443,fork,reuseaddr TCP:aisvc:8000 &
-echo "[방화벽] VIP 10.20.30.100:443 -> aisvc:8000 전달 시작"
+socat TCP-LISTEN:443,fork,reuseaddr TCP:agenthub:8000 &
+echo "[방화벽] VIP 10.20.30.100:443 -> agenthub:8000 전달 시작"
 wait

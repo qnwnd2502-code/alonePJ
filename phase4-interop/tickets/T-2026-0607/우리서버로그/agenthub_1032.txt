@@ -1,4 +1,4 @@
-[aisvc] 상담 질문 수신 : 연금 납부내역 조회 방법 알려주세요
+[agenthub] 상담 질문 수신 : 연금 납부내역 조회 방법 알려주세요
 INFO:     172.30.0.4:55708 - "POST /ai/counsel HTTP/1.1" 500 Internal Server Error
 ERROR:    Exception in ASGI application
 Traceback (most recent call last):

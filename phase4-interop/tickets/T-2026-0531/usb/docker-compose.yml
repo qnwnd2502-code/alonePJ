@@ -2,7 +2,7 @@
 # (박사원이 개발 PC 에서 쓰던 것을 그대로 USB 에 복사해 둠)
 services:
   ai:
-    image: oo-ai:1.0
+    image: agenthub:1.0
     ports:
       - "8000:8000"
     environment:
