@@ -1,18 +1,23 @@
 package com.study.interop;
 
 import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
-
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Collections;
 
 /**
  * OO공단 민원 AI 상담.
@@ -62,6 +67,30 @@ public class CounselController {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("질문", maskedQuestion);
         out.put("답변", answer);
+        return out;
+    }
+
+    // 실습용 : DB 대신 고정 데이터 (사용자별 최근 상담 제목)
+    private static final Map<String, List<String>> HISTORY = Map.of(
+            "hong", List.of("연금 납부내역 조회", "가입이력 확인"),
+            "kim", List.of("환급금 문의"));
+
+    /** 내 상담 이력. 로그인한 사람 것만 보여준다. (2026-09-30 추가) */
+    @GetMapping("/history")
+    public Map<String, Object> history(HttpSession session) {
+        String userId = (String) session.getAttribute("loginUser");
+
+        if (userId == null){
+            throw new ResponseStatusException(
+                HttpStatus.UNAUTHORIZED, "로그인이 필요합니다."
+            );
+        }
+        List<String> list = HISTORY.getOrDefault(userId, Collections.emptyList());
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("사용자", userId);
+        out.put("건수", list.size());
+        out.put("이력", list);
         return out;
     }
 }
