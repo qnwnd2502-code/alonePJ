@@ -133,11 +133,11 @@ services:
     volumes:
       - sftpdata:/home/eaiuser/outbox
 
-  # ============ ★ 우리 AI 제품 ============
+  # ============ ★ 우리 AI 제품 — AgentHub ============
   # 지금까지 partner 가 '남의 시스템' 이었다면, 이건 '우리 제품' 이다.
   # 기관 전자정부(boot)가 이걸 부른다. 자리가 바뀌었다.
-  aisvc:
-    build: ./aisvc
+  agenthub:
+    build: ./agenthub
     # ★ 실습 12. AI 존(ainet) 에만 있다. 기관망에서는 방화벽(fw)을 거쳐야만 닿는다.
     networks:
       - ainet
@@ -168,7 +168,7 @@ services:
     volumes:
       - ./fw/policy.conf:/policy/policy.conf:ro
     depends_on:
-      - aisvc
+      - agenthub
 
   # ============ ★ OO공단 폐쇄망 개발서버 (실습 13) ============
   # 인터넷이 '아예' 없는 서버. network_mode: none = 네트워크 카드가 없다.
@@ -204,7 +204,7 @@ networks:
     ipam:
       config:
         - subnet: 10.20.30.0/24
-  # 우리 AI 서비스 존
+  # AgentHub (우리 AI 제품) 존
   ainet:
     ipam:
       config:

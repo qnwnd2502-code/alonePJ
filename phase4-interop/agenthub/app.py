@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 =========================================================================
- ★ 우리 AI 제품 (FastAPI + uvicorn).
+ ★ 우리 AI 제품 AgentHub (FastAPI + uvicorn).
 
  지금까지와 자리가 바뀌었다.
    Phase 4     우리가 '부르는 쪽' 이었다
@@ -12,7 +12,7 @@
 """
 from fastapi import FastAPI, Request
 
-app = FastAPI(title="우리 AI 서비스")
+app = FastAPI(title="AgentHub (우리 AI 제품)")
 
 
 @app.get("/ai/health")
@@ -93,7 +93,7 @@ LLM_URL = os.environ.get("LLM_URL", "http://llm-ext:8000/v1/chat")
 async def counsel(request: Request):
     body = await request.json()
     q = body.get("question", "")
-    print(f"[aisvc] 상담 질문 수신 : {q}", flush=True)
+    print(f"[agenthub] 상담 질문 수신 : {q}", flush=True)
 
     prompt = f"너는 OO공단 민원 상담원이다. 아래 질문에 답하라.\n질문: {q}"
     data = json.dumps({"prompt": prompt}, ensure_ascii=False).encode("utf-8")

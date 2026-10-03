@@ -2089,7 +2089,7 @@ allow 를 비교하면 권한 변경은 잡히지만 삭제는 못 잡는다(삭
 Phase 4 전체   우리가 남의 API 를 '부르는 쪽' 이었다
 여기부터       기관 전자정부(Java)가 '우리 AI 제품' 을 부른다
 
-  기관 JSP → 기관 Java 백엔드 → [HTTP] → 우리 FastAPI(aisvc) → 답변 → JSP 렌더
+  기관 JSP → 기관 Java 백엔드 → [HTTP] → 우리 FastAPI(agenthub) → 답변 → JSP 렌더
                   ↑ EgovAiClient.java 가 그 자리다
 ```
 
@@ -2238,7 +2238,7 @@ OO공단 업무망 (10.20.30.0/24)           우리 AI 존 (172.30.0.0/24)
 ┌──────────────────────┐              ┌──────────────┐
 │ AI연계 개발서버         │   ┌──────┐   │              │
 │ 10.20.30.15  (boot) ───┼──▶│ 방화벽 │──▶│ AI 서버       │
-│                      │   │  fw   │   │ (aisvc:8000) │
+│                      │   │  fw   │   │ (agenthub:8000) │
 └──────────────────────┘   └──────┘   └──────────────┘
                      VIP 10.20.30.100:443
 ```
@@ -2349,7 +2349,7 @@ docker-compose.yml  offline-dev      ★ 네트워크 카드가 아예 없는 �
 ### 증상
 
 ```
-docker compose run --rm offline-dev sh -c "pip install --no-index --find-links wheels -r aisvc/requirements.txt"
+docker compose run --rm offline-dev sh -c "pip install --no-index --find-links wheels -r agenthub/requirements.txt"
 -> No matching distribution found for pydantic-core==2.46.5
 ```
 
@@ -2380,8 +2380,8 @@ AI 쪽 단골 : pydantic-core, numpy, pandas, torch(CUDA 버전까지), psycopg2
 ### 해결 — 서버와 같은 도커 이미지 안에서 받는다
 
 ```powershell
-docker run --rm -v "${PWD}\tickets\T-2026-0426\usb:/usb" -w /usb python:3.12-slim pip download -r aisvc/requirements.txt -d wheels-linux
-docker compose run --rm offline-dev sh -c "pip install --no-index --find-links wheels-linux -r aisvc/requirements.txt"
+docker run --rm -v "${PWD}\tickets\T-2026-0426\usb:/usb" -w /usb python:3.12-slim pip download -r agenthub/requirements.txt -d wheels-linux
+docker compose run --rm offline-dev sh -c "pip install --no-index --find-links wheels-linux -r agenthub/requirements.txt"
 ```
 
 ```
@@ -2397,14 +2397,14 @@ pydantic_core-2.46.5-cp312-cp312-manylinux_2_17_x86_64...whl    -> 설치 성공
 기관 반입 기준 : 파일별 **파일명·크기·SHA-256**, 목록과 다르면 반입 불가, **목록에 없는 파일은 반입 불가**.
 
 ```
-docker compose run --rm offline-dev sh -c "ls -l aisvc wheels-linux; sha256sum aisvc/* wheels-linux/*"
+docker compose run --rm offline-dev sh -c "ls -l agenthub wheels-linux; sha256sum agenthub/* wheels-linux/*"
 ```
 
 ★ 반입 당일 걸리는 함정 두 개 :
 
 ```
 ① 윈도우용 wheels/ 가 USB 에 그대로 남아 있다     -> 목록에 없는 파일 = 반입 불가
-② aisvc/__pycache__/ 가 생겨 있다                -> USB 위에서 테스트로 서비스를 띄웠기 때문
+② agenthub/__pycache__/ 가 생겨 있다                -> USB 위에서 테스트로 서비스를 띄웠기 때문
                                                   파이썬이 실행하면서 캐시 파일을 만든다
 ```
 
@@ -2431,7 +2431,7 @@ docker compose run --rm offline-dev sh -c "ls -l aisvc wheels-linux; sha256sum a
 
 ```powershell
 cd tickets\T-2026-0426\usb
-python -m pip download -r aisvc/requirements.txt -d wheels     # 윈도우 PC 에서 = 신입이 한 그대로
+python -m pip download -r agenthub/requirements.txt -d wheels     # 윈도우 PC 에서 = 신입이 한 그대로
 ```
 
 ---
@@ -2539,7 +2539,7 @@ fail-closed  확실하지 않으면 다 가린다           <- 마스킹은 반�
 ```
 tickets/T-2026-0510/                  티켓 + 기관 JSP 발췌 + AI 연계 규격
 PortalController.java                 OO공단 포털 백엔드 (기관 개발자 코드 → 수정)
-aisvc/app.py  /ai/search              우리 AI 서버. X-User-Id 헤더의 사용자 부서 문서만 준다
+agenthub/app.py  /ai/search              우리 AI 서버. X-User-Id 헤더의 사용자 부서 문서만 준다
 ```
 
 지금까지의 인증(API Key·mTLS·HMAC·JWT)은 전부 **서버가 상대 서버를 믿는 법**이었다.
@@ -2642,7 +2642,7 @@ tickets/T-2026-0524-개인정보점검.md    티켓 (개인정보 담당자의 �
 tickets/T-2026-0524-풀이.md            결과표 + 결함 3개 + 회신에 들어갈 것
 CounselController.java                 OO공단 민원 AI 상담 백엔드 (박사원 코드 → 수정)
 MaskingUtil.maskText                   문장 속 주민번호 가리기 (정규식)
-aisvc/app.py  /ai/counsel              우리 AI 제품. 받은 질문을 외부 LLM 으로 보낸다
+agenthub/app.py  /ai/counsel              우리 AI 제품. 받은 질문을 외부 LLM 으로 보낸다
 llm-ext/                               외부 LLM API (클라우드 업체, 가상). 현실에선 이 로그를 못 본다
 src/main/resources/static/counsel.html 상담 화면 (http://localhost:9600/counsel.html)
 ```
@@ -2654,7 +2654,7 @@ src/main/resources/static/counsel.html 상담 화면 (http://localhost:9600/coun
 ### 네 군데를 본다
 
 ```
-① 화면        ② 기관 로그 (boot)        ③ 우리 로그 (aisvc)        ④ 외부 LLM (llm-ext)
+① 화면        ② 기관 로그 (boot)        ③ 우리 로그 (agenthub)        ④ 외부 LLM (llm-ext)
 ```
 
 고치기 전 예시 A(하이픈) 는 **화면만 가려지고 ②③④ 전부 원본**. B(붙여씀)·C(띄어씀) 는 네 군데 전부 원본.
@@ -2694,7 +2694,7 @@ tickets/T-2026-0531/T-2026-0531-설치요청.md   티켓 (USB 1개, 목록·해�
 tickets/T-2026-0531/release/                  회사 빌드 담당이 준 것 (릴리스노트, 모델 생성 스크립트)
 tickets/T-2026-0531/usb/                      USB 역할 폴더. 기동 파일 + 반입 목록 (tar·bin 은 커밋 안 함)
 docker-compose.yml  closed-srv                폐쇄망 AI 서버 (docker:27-dind + network_mode: none)
-aisvc/app.py  /ai/model                       모델 파일을 읽었는지 + sha256
+agenthub/app.py  /ai/model                       모델 파일을 읽었는지 + sha256
 단어장.md (레포 루트)                          모르는 단어 모음. 복습은 여기서
 ```
 
@@ -2716,19 +2716,19 @@ aisvc/app.py  /ai/model                       모델 파일을 읽었는지 + sh
 
 ```
 docker pull python:3.12-slim   → network is unreachable
-docker compose up              → build: ./aisvc  "여기서 만들어라" → 소스도 인터넷도 없다
+docker compose up              → build: ./agenthub  "여기서 만들어라" → 소스도 인터넷도 없다
 (tar 를 꽂고) compose up        → 창고에 없으니 인터넷에서 받으려 함 → https 에러.  폴더에 tar 가 있다고 도커가 아는 게 아니다
 ```
 
 ### 절차
 
 ```
-[내 PC]  ① docker build -t oo-ai:1.0 ./aisvc       이미지 굽기
-         ② docker save -o usb\oo-ai-1.0.tar oo-ai:1.0
-         ③ 모델 파일 + compose(build: → image: oo-ai:1.0) 를 USB 에
+[내 PC]  ① docker build -t agenthub:1.0 ./agenthub       이미지 굽기
+         ② docker save -o usb\agenthub-1.0.tar agenthub:1.0
+         ③ 모델 파일 + compose(build: → image: agenthub:1.0) 를 USB 에
          ④ ★ 마지막에 해시 → 반입 목록      (한 글자만 고쳐도 해시가 통째로 바뀐다)
 [서버]   ⑤ 서버 디스크로 복사 → sha256sum 으로 다시 확인
-         ⑥ docker load -i oo-ai-1.0.tar          ← 이미지만. 모델은 그냥 폴더 (volumes 로 물린다)
+         ⑥ docker load -i agenthub-1.0.tar          ← 이미지만. 모델은 그냥 폴더 (volumes 로 물린다)
          ⑦ docker compose up -d
          ⑧ /ai/health  /ai/model (sha256 이 릴리스노트와 같은가)
 ```
@@ -2741,7 +2741,7 @@ docker compose up              → build: ./aisvc  "여기서 만들어라" → 
 ```
 pip wheel 반입    서버와 같은 OS·파이썬 버전용 파일을 골라야 한다 (cp312 / manylinux)
 이미지 반입        pip install 은 이미 리눅스 이미지 안에서 끝났다 → OS·파이썬 버전 문제는 사라진다
-                  ★ CPU 종류는 여전히 맞아야 한다   docker image inspect oo-ai:1.0 --format "{{.Os}}/{{.Architecture}}"
+                  ★ CPU 종류는 여전히 맞아야 한다   docker image inspect agenthub:1.0 --format "{{.Os}}/{{.Architecture}}"
                     맥(arm64)에서 구운 이미지는 amd64 서버에서 exec format error → --platform linux/amd64
 ```
 
@@ -2751,7 +2751,7 @@ pip wheel 반입    서버와 같은 OS·파이썬 버전용 파일을 골라야
 ```
 tickets/T-2026-0607/T-2026-0607-장애판정.md    티켓 (오류 3건, 조치 주체 A~D 판정)
 tickets/T-2026-0607/기관서버로그/               실제로 장애를 일으켜 받은 boot 로그
-tickets/T-2026-0607/우리서버로그/               aisvc 로그 (우리 제품 로그는 우리가 꺼내 본다)
+tickets/T-2026-0607/우리서버로그/               agenthub 로그 (우리 제품 로그는 우리가 꺼내 본다)
 tickets/T-2026-0607/T-2026-0607-풀이.md        판정표 + 가르는 순서
 CounselController /counsel/history             내 상담 이력 (1번 장애 → 수정)
 ```
@@ -2769,8 +2769,8 @@ CounselController /counsel/history             내 상담 이력 (1번 장애 �
 | # | 증상 | 가른 증거 | 주체 |
 |---|---|---|---|
 | 1 | lee 이력 조회 500 | `at com.study ...:84` `NullPointerException` | 우리 SI |
-| 2 | "잠시 후 다시 시도" | boot `500` (답은 왔다) → aisvc `Name or service not known` | 외부 LLM 업체 (+우리 제품 안내 개선) |
-| 3 | "잠시 후 다시 시도" | `Connect timed out` + aisvc 로그에 기록 없음 | 기관 인프라팀 (방화벽) |
+| 2 | "잠시 후 다시 시도" | boot `500` (답은 왔다) → agenthub `Name or service not known` | 외부 LLM 업체 (+우리 제품 안내 개선) |
+| 3 | "잠시 후 다시 시도" | `Connect timed out` + agenthub 로그에 기록 없음 | 기관 인프라팀 (방화벽) |
 
 ★ 2·3번은 화면 증상이 같다. **상대가 답을 했나 / 상대 로그에 남았나** 로 가른다.
 ★ 에러가 나면 남부터 의심하게 된다. `at com.study` 가 위에 있으면 넘어진 건 우리다.

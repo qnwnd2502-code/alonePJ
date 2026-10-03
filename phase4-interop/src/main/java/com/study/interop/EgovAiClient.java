@@ -23,7 +23,7 @@ import java.util.Map;
 //          ↓
 //      기관 Java 백엔드   ← ★ 이 클래스가 그 자리다
 //          ↓  HTTP
-//      우리 FastAPI (aisvc)
+//      우리 FastAPI (agenthub)
 //          ↓
 //      답변 → JSP 렌더
 //
