@@ -51,3 +51,7 @@ known_hosts
 # ── 실습 13 (폐쇄망 반입) ── 반입용 패키지·이미지는 크고 재생성 가능하므로 커밋하지 않는다
 phase4-interop/tickets/*/usb/wheels*/
 phase4-interop/tickets/*/usb/*.tar
+
+# 실습 18 : 반입용 이미지 tar / 모델 가중치 (용량 큼. 커밋 금지)
+phase4-interop/tickets/**/*.tar
+phase4-interop/tickets/**/*.bin
