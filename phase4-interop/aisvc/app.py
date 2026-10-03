@@ -104,3 +104,26 @@ async def counsel(request: Request):
         res = json.loads(r.read().decode("utf-8"))
 
     return {"answer": res.get("answer", "")}
+
+
+# =========================================================================
+#  실습 18 : 모델 파일 확인
+#
+#  모델 가중치(수 GB)는 이미지 안에 굽지 않는다. 서버의 폴더를 /models 로 물려서 읽는다.
+#  → 폐쇄망에는 '이미지' 와 '모델 파일' 을 따로 들고 가야 한다.
+# =========================================================================
+import hashlib
+
+MODEL_PATH = os.environ.get("MODEL_PATH", "/models/embedding-v1.bin")
+
+
+@app.get("/ai/model")
+async def model():
+    if not os.path.exists(MODEL_PATH):
+        return {"모델": "없음", "찾은경로": MODEL_PATH}
+    h = hashlib.sha256()
+    with open(MODEL_PATH, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return {"모델": "읽음", "찾은경로": MODEL_PATH,
+            "크기": os.path.getsize(MODEL_PATH), "sha256": h.hexdigest()}

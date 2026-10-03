@@ -1,0 +1,11 @@
+# OO공단 AI 서버 기동 파일
+# (박사원이 개발 PC 에서 쓰던 것을 그대로 USB 에 복사해 둠)
+services:
+  ai:
+    image: oo-ai:1.0
+    ports:
+      - "8000:8000"
+    environment:
+      MODEL_PATH: /models/embedding-v1.bin
+    volumes:
+      - ./model:/models:ro

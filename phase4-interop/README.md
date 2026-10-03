@@ -2685,3 +2685,62 @@ RRN_IN_TEXT.matcher(text)                 // 문장에 댄다
 ```
 
 `[-\\s]` 이 중 하나 / `?` 있어도 되고 없어도 됨 / 부품을 이어 붙이면 "또는" 이 아니라 "그리고 이어서"
+
+
+## 실습 18 — 티켓 #7 : 폐쇄망에 도커 이미지·모델 반입 (졸업 기준표 6번)
+
+```
+tickets/T-2026-0531/T-2026-0531-설치요청.md   티켓 (USB 1개, 목록·해시 불일치면 2주 뒤)
+tickets/T-2026-0531/release/                  회사 빌드 담당이 준 것 (릴리스노트, 모델 생성 스크립트)
+tickets/T-2026-0531/usb/                      USB 역할 폴더. 기동 파일 + 반입 목록 (tar·bin 은 커밋 안 함)
+docker-compose.yml  closed-srv                폐쇄망 AI 서버 (docker:27-dind + network_mode: none)
+aisvc/app.py  /ai/model                       모델 파일을 읽었는지 + sha256
+단어장.md (레포 루트)                          모르는 단어 모음. 복습은 여기서
+```
+
+이번 회부터 수업 앞에 **줄 번역 20분**이 붙었다. 버그를 빨리 찾는 것과 코드를 읽을 줄 아는 것은 다르다.
+
+### 컴퓨터 세 대 (연습은 전부 PC 한 대 안)
+
+| 실제 설치일 | 연습 |
+|---|---|
+| 내 노트북 | 이 윈도우 |
+| USB 메모리 | `tickets\T-2026-0531\usb` 폴더 |
+| USB 를 서버에 꽂는다 | 그 폴더가 서버의 `/usb` 로 보인다 (volumes) |
+| 전산실 서버 ssh | `docker exec -it closed-srv sh` |
+| 서버에 인터넷 없음 | `network_mode: none` |
+
+시작 : `docker compose --profile lab up -d closed-srv` (10초 기다림) / 정리 : `docker compose --profile lab down`
+
+### 빈손으로 들어가면
+
+```
+docker pull python:3.12-slim   → network is unreachable
+docker compose up              → build: ./aisvc  "여기서 만들어라" → 소스도 인터넷도 없다
+(tar 를 꽂고) compose up        → 창고에 없으니 인터넷에서 받으려 함 → https 에러.  폴더에 tar 가 있다고 도커가 아는 게 아니다
+```
+
+### 절차
+
+```
+[내 PC]  ① docker build -t oo-ai:1.0 ./aisvc       이미지 굽기
+         ② docker save -o usb\oo-ai-1.0.tar oo-ai:1.0
+         ③ 모델 파일 + compose(build: → image: oo-ai:1.0) 를 USB 에
+         ④ ★ 마지막에 해시 → 반입 목록      (한 글자만 고쳐도 해시가 통째로 바뀐다)
+[서버]   ⑤ 서버 디스크로 복사 → sha256sum 으로 다시 확인
+         ⑥ docker load -i oo-ai-1.0.tar          ← 이미지만. 모델은 그냥 폴더 (volumes 로 물린다)
+         ⑦ docker compose up -d
+         ⑧ /ai/health  /ai/model (sha256 이 릴리스노트와 같은가)
+```
+
+- **소스코드는 들고 가지 않는다.** 들고 가는 건 구워진 이미지다
+- **모델은 이미지에 굽지 않는다.** 수 GB 라서. 따로 들고 가서 볼륨으로 물린다
+
+### 실습 13(pip 반입)과 비교
+
+```
+pip wheel 반입    서버와 같은 OS·파이썬 버전용 파일을 골라야 한다 (cp312 / manylinux)
+이미지 반입        pip install 은 이미 리눅스 이미지 안에서 끝났다 → OS·파이썬 버전 문제는 사라진다
+                  ★ CPU 종류는 여전히 맞아야 한다   docker image inspect oo-ai:1.0 --format "{{.Os}}/{{.Architecture}}"
+                    맥(arm64)에서 구운 이미지는 amd64 서버에서 exec format error → --platform linux/amd64
+```
