@@ -1,0 +1,21 @@
+# OO공단 AI 서버 — AgentHub 기동 파일 (반디SNC 설치, 2026-09-18)
+services:
+  ai:
+    image: agenthub:1.0
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      LLM_URL: http://llm:8000/v1/chat      # 기관 서버 안의 vLLM 으로 보낸다 (밖으로 안 나간다)
+    depends_on:
+      - llm
+
+  llm:
+    image: vllm-sim:1.0
+    restart: unless-stopped
+    env_file: llm.env                       # 어떤 모델을 올릴지는 이 파일이 정한다
+    volumes:
+      - ./models:/models:ro
+      # 실습용 : 진짜 GPU 대신 GPU 정보 파일을 넘긴다
+      # (진짜 서버에서는 deploy.resources.reservations.devices 로 GPU 를 넘긴다)
+      - /etc/gpu-info:/etc/gpu-info:ro
