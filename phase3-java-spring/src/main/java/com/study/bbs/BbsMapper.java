@@ -11,4 +11,6 @@ public interface BbsMapper {
     List<Map<String, Object>> selectBbsList(BoardVO searchVO);
 
     int selectBbsListCnt(BoardVO searchVO);
+
+    Map<String, Object> selectBbs(int nttId);
 }
