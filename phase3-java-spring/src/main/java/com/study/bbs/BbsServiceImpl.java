@@ -1,7 +1,9 @@
 package com.study.bbs;
 
 import jakarta.annotation.Resource;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,5 +29,14 @@ public class BbsServiceImpl implements BbsService {
         out.put("총페이지", totalPage);
         out.put("resultList", resultList);
         return out;
+    }
+    @Override
+    public Map<String, Object> selectBbs(int nttId){
+        Map<String,Object> bbs = bbsMapper.selectBbs(nttId);
+
+        if (bbs == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,"없는 게시물입니다");
+        }
+        return bbs;
     }
 }

@@ -28,5 +28,15 @@
             AND ntt_sj LIKE '%' || #{searchKeyword} || '%'
         </if>
     </select>
-
+    <!-- 공지사항 상세-->
+    <select id="selectBbs" parameterType="int" resultType="map">
+        SELECT ntt_id            AS "nttId"
+             , ntt_sj            AS "nttSj"
+             , ntt_cn            AS "nttCn"
+             , ntcr_nm           AS "ntcrNm"
+             , TO_CHAR(frst_regist_pnttm, 'YYYY-MM-DD') AS "frstRegistPnttm"
+          FROM comtnbbs
+         WHERE ntt_id = #{nttId}
+           AND use_at = 'Y'
+    </select>
 </mapper>
