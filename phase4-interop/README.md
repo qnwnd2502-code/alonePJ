@@ -2779,3 +2779,56 @@ CounselController /counsel/history             내 상담 이력 (1번 장애 �
 
 - `HISTORY.get` → `getOrDefault(userId, Collections.emptyList())` — null(서랍 없음) ≠ 0건(빈 서랍)
 - 테스트 밖의 값(로그인 안 한 사람)으로 찌르니 또 500 → 로그인 확인 + **401**
+
+
+## 실습 20 — 티켓 #9 : VPN 원격 장애 대응 (졸업 기준표 13번, ① 납품·기술지원)
+
+```
+tickets/T-2026-0614/T-2026-0614-원격장애.md   티켓 + 관계도 (LLM 이 기관 서버 '안' 에 있다)
+tickets/T-2026-0614/server/                  기관 AI 서버의 /opt/agenthub (compose, llm.env, 백업, 모델 폴더, 패치이력)
+tickets/T-2026-0614/gpu/                     GPU 흉내 (nvidia-smi 스크립트, gpu-info)
+tickets/T-2026-0614/원격작업신청서.md          접속 전에 낸 것
+tickets/T-2026-0614/장애보고서.md              끝나고 낸 것
+vllm-sim/                                    vLLM 흉내. 모델 크기 > GPU 가용 메모리면 CUDA out of memory 로 죽는다
+```
+
+형태 ① : 기관은 AgentHub 를 '샀다'. 반디SNC 가 설치했고, 장애는 VPN 원격으로 대응한다.
+
+### 준비 (레포를 새로 받았을 때)
+
+```
+docker build -t vllm-sim:1.0 ./vllm-sim
+docker build -t agenthub:1.0 ./agenthub
+docker compose --profile lab up -d closed-srv
+docker save agenthub:1.0 vllm-sim:1.0 | docker exec -i closed-srv docker load
+docker exec closed-srv sh -c "cd /opt/agenthub && docker compose up -d"     # llm.env 가 32b 라 장애 상태로 뜬다
+```
+
+### 흐름
+
+```
+1. 원격작업 신청서   목적은 중립으로("원인 확인 및 조치"). ★ 롤백 방안 : 지금 상태부터 백업 → 이전 설정으로
+2. 접속 → 보기만     docker compose ps -a / logs ai / logs llm / nvidia-smi / 패치이력
+3. 조치              cp llm.env llm.env.장애당시-...  →  cp llm.env.bak-20261002 llm.env  →  docker compose up -d
+4. 확인              llm Up + 상담 질문 1건 답변
+5. 장애보고서
+```
+
+### 원인 사슬
+
+```
+AgentHub  URLError: Temporary failure in name resolution    ← llm 이 죽어 있어 이름을 못 찾음
+vLLM      usable 40.07 GiB  <  weights 61.0 GiB  → CUDA out of memory → Restarting 반복
+nvidia-smi  0MiB / 46068MiB  ← 누가 GPU 를 쓰는 게 아니다. 모델이 너무 크다
+패치이력    "H200 141GB 에서 검증 완료"  "확인 : (없음)"
+```
+
+★ 실습 19 장애 2번과 **에러 모양은 같았다**(이름 못 찾음). 그때는 LLM 이 밖(업체)이라 D, 이번엔 기관 서버 안에 **우리가 설치한 것**이라 반디SNC.
+**판정은 에러 모양이 아니라 관계도에서 그 칸의 주인이 정한다.**
+
+### 알아둘 것
+
+- `restart` 는 만들어진 컨테이너를 다시 켤 뿐 — 바뀐 `env_file` 을 안 읽는다. 설정을 바꿨으면 `up -d`
+- 장애 기간은 **기관이 알아챈 때가 아니라 패치한 때부터**
+- 위험한 기본값 : `os.environ.get("LLM_URL", "http://llm-ext...")` — 설정을 빠뜨리면 조용히 외부로 보낸다. 값이 없으면 기동 거부(fail-closed)가 낫다 (AgentHub 개선 과제)
+- `Usage:` 가 나오면 에러가 아니라 "명령 모양이 틀렸다" 는 안내. 긴 명령은 `\` 로 줄을 나눠 붙여넣는다

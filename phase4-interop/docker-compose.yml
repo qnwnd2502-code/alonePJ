@@ -196,6 +196,10 @@ services:
       DOCKER_TLS_CERTDIR: ""
     volumes:
       - ./tickets/T-2026-0531/usb:/usb
+      # ★ 실습 20. 기관 AI 서버의 AgentHub 설치 폴더와 GPU (흉내)
+      - ./tickets/T-2026-0614/server:/opt/agenthub
+      - ./tickets/T-2026-0614/gpu/gpu-info:/etc/gpu-info:ro
+      - ./tickets/T-2026-0614/gpu/nvidia-smi:/usr/local/bin/nvidia-smi:ro
       - closeddocker:/var/lib/docker
 
 networks:

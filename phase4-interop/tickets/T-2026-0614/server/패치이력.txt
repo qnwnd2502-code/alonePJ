@@ -1,0 +1,13 @@
+AgentHub @ OO공단 AI 서버 — 작업 이력 (반디SNC 기록)
+
+2026-09-18  1.0 설치 (방문, 실습 18)
+            모델 qwen2.5-7b-instruct
+
+2026-10-01  방문 반입 : 모델 가중치 qwen2.5-32b-instruct (61 GiB)
+
+2026-10-02  1.1 원격 패치 (VPN, 18:40~18:55)  작업자 박사원
+            내용 : 답변 품질 개선 — 모델을 qwen2.5-32b-instruct 로 상향
+                   반디SNC 개발서버(H200 141GB)에서 검증 완료
+            변경 : llm.env  (변경 전 파일은 llm.env.bak-20261002 로 보관)
+            적용 : docker compose up -d
+            확인 : (없음)
